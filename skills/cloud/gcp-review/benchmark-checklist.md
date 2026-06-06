@@ -773,3 +773,120 @@ resource "google_bigquery_dataset" {
 ### CIS 7.3 -- Ensure that a Default Customer-Managed Encryption Key (CMEK) Is Specified for All BigQuery Datasets
 
 Verify `default_encryption_configuration` is set on all datasets.
+
+### BigQuery fine-grained data access evidence gates
+
+These checks supplement CIS 7.1-7.3 when BigQuery datasets contain sensitive,
+regulated, multi-tenant, or customer data. Do not mark a dataset as fully
+acceptable only because it is not public and uses CMEK; also record whether
+the effective data-sharing controls are known and bounded.
+
+#### Authorized views, authorized datasets, and routines
+
+Review dataset `access` blocks and `google_bigquery_dataset_access` resources.
+Authorized views and authorized datasets are valid ways to share filtered data,
+but they should be tied to approved view datasets, expected source datasets,
+and least-privilege principals.
+
+```hcl
+# REVIEW: Authorized view grant. Verify the view query, destination dataset,
+# principal access to the view dataset, source dataset location, and change owner.
+resource "google_bigquery_dataset_access" "sales_view" {
+  dataset_id = google_bigquery_dataset.source.dataset_id
+  view {
+    project_id = google_bigquery_table.sales_view.project
+    dataset_id = google_bigquery_table.sales_view.dataset_id
+    table_id   = google_bigquery_table.sales_view.table_id
+  }
+}
+
+# REVIEW: Authorized dataset. Verify that every view in the authorized dataset
+# is governed; otherwise future views can inherit access to the source data.
+resource "google_bigquery_dataset_access" "analytics_views" {
+  dataset_id = google_bigquery_dataset.source.dataset_id
+  dataset {
+    dataset {
+      project_id = google_bigquery_dataset.views.project
+      dataset_id = google_bigquery_dataset.views.dataset_id
+    }
+    target_types = ["VIEWS"]
+  }
+}
+```
+
+Flag as High when an authorized dataset grants a broad view dataset access to
+sensitive source tables without view inventory, owner approval, region evidence,
+and monitoring for new views.
+
+#### Row access policies
+
+For tables that require row-level separation, look for explicit row access
+policies and verify both the filter predicate and grantee list. The
+`roles/bigquery.filteredDataViewer` role is system-managed and should be granted
+through row access policies, not directly through IAM bindings.
+
+```hcl
+resource "google_bigquery_row_access_policy" "tenant_filter" {
+  dataset_id       = google_bigquery_dataset.app.dataset_id
+  table_id         = google_bigquery_table.orders.table_id
+  policy_id        = "tenant_filter"
+  filter_predicate = "tenant_id = SESSION_USER()"
+  grantees         = ["group:tenant-analysts@example.com"]
+}
+
+# BAD: Direct filteredDataViewer IAM grant bypasses the expected policy-managed path.
+resource "google_bigquery_table_iam_member" "direct_filtered_viewer" {
+  role   = "roles/bigquery.filteredDataViewer"
+  member = "group:tenant-analysts@example.com"
+}
+```
+
+Flag as High when a table is documented as tenant- or region-scoped but no row
+access policy, authorized-view filter, or separate-table evidence is present.
+Flag as Medium when a policy exists but the filter predicate or grantee evidence
+is not available for review.
+
+#### Column policy tags and data policies
+
+For sensitive columns, inspect table schemas for `policyTags` and verify that
+the corresponding Data Catalog / BigQuery Data Policy access is enforced and
+granted only to approved readers.
+
+```json
+{
+  "name": "customer_ssn",
+  "type": "STRING",
+  "policyTags": {
+    "names": [
+      "projects/p/locations/us/taxonomies/t/policyTags/pii"
+    ]
+  }
+}
+```
+
+Flag as High when production PII, secrets, payment, or regulated columns have
+no policy tag, masking policy, row-level control, authorized-view projection, or
+separate-table design. Flag as Medium when tags exist but enforcement or
+Fine-Grained Reader / Masked Reader grants cannot be evaluated.
+
+#### IAM Conditions and tag-based access
+
+When reviewing conditional BigQuery access, confirm the evidence was retrieved
+with access policy version 3 so conditions are visible. Conditions should use
+positive `resource.type`, `resource.name`, and `resource.service` checks instead
+of broad negative expressions.
+
+```json
+{
+  "role": "roles/bigquery.dataViewer",
+  "userByEmail": "analyst@example.com",
+  "condition": {
+    "title": "Only table_1",
+    "expression": "resource.type == 'bigquery.googleapis.com/Table' && resource.name == 'projects/p/datasets/d/tables/table_1'"
+  }
+}
+```
+
+Flag as Not Evaluable when dataset IAM was exported without condition details or
+when Terraform resources split dataset `access` and IAM bindings in a way that
+makes the effective access graph unclear.

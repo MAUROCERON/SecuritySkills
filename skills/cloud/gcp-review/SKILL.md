@@ -54,6 +54,7 @@ The CIS Google Cloud Platform Foundation Benchmark v2.0.0 is a consensus-driven 
 - IAM policy bindings and org policy definitions
 - VPC and firewall rule definitions
 - Cloud Audit Logs configuration
+- BigQuery dataset access blocks, IAM policies, table schemas, row access policies, policy tags, authorized views or authorized datasets, when BigQuery is in scope
 
 ---
 
@@ -100,8 +101,8 @@ Produce the final report using the structure defined in the Output Format sectio
 | Severity | Definition | Examples |
 |----------|-----------|----------|
 | **Critical** | Immediate risk of data breach or unauthorized access | Public GCS buckets, firewall rules allowing 0.0.0.0/0 on SSH/RDP, Cloud SQL with public IP and no SSL, user-managed SA keys with admin roles |
-| **High** | Significant security gap that materially weakens posture | Default service accounts with broad scopes, missing Cloud Audit Logs, no VPC flow logs, instances with public IPs |
-| **Medium** | Control gap that should be addressed in normal cycle | Missing log metric filters, DNSSEC not enabled, Shielded VM not enabled, uniform bucket access not set |
+| **High** | Significant security gap that materially weakens posture | Default service accounts with broad scopes, missing Cloud Audit Logs, no VPC flow logs, instances with public IPs, unbounded BigQuery authorized views exposing sensitive source tables |
+| **Medium** | Control gap that should be addressed in normal cycle | Missing log metric filters, DNSSEC not enabled, Shielded VM not enabled, uniform bucket access not set, BigQuery row or column access policy evidence missing for sensitive tables |
 | **Low** | Hardening recommendation or defense-in-depth measure | OS Login not enabled, serial port access not explicitly disabled, BigQuery tables without CMEK |
 | **Informational** | Best practice observation, no direct security impact | Default network still exists (non-production), naming conventions, documentation gaps |
 
@@ -177,7 +178,7 @@ Produce the final report using the structure defined in the Output Format sectio
 | 4 | Virtual Machines | Default service accounts, access scopes, project SSH key blocking, OS Login, serial port, IP forwarding, CMEK disks, Shielded VM, public IPs, Confidential Computing |
 | 5 | Storage | Public bucket access, uniform bucket-level access |
 | 6 | Cloud SQL | MySQL/PostgreSQL/SQL Server database flags, SSL enforcement, authorized networks, public IP, automated backups |
-| 7 | BigQuery | Public dataset access, CMEK encryption for tables and datasets |
+| 7 | BigQuery | Public dataset access, CMEK encryption for tables and datasets, fine-grained data access evidence for authorized views, row access policies, policy tags, and IAM Conditions |
 
 ### CIS Profile Levels
 
@@ -193,7 +194,8 @@ Produce the final report using the structure defined in the Output Format sectio
 3. **VPC flow logs must be per-subnet.** CIS 3.8 requires flow logs on every subnet, not just the VPC. Each `google_compute_subnetwork` must have a `log_config` block.
 4. **Cloud SQL authorized_networks vs. private IP.** CIS 6.5 flags `0.0.0.0/0` in authorized networks, but CIS 6.6 goes further and recommends disabling public IP entirely in favor of private networking.
 5. **BigQuery dataset-level vs. table-level CMEK.** CIS 7.2 checks table-level encryption, while CIS 7.3 checks the dataset default. Both should be evaluated independently.
-6. **Default compute service account identification.** The default SA follows the pattern `PROJECT_NUMBER-compute@developer.gserviceaccount.com`. Grep for this pattern, not just the string "default."
+6. **BigQuery non-public is not enough for sensitive data.** A dataset can pass the public-access check while still exposing source data through authorized views, authorized datasets, broad row-access grantees, missing column policy tags, or IAM Conditions that were not retrieved with `accessPolicyVersion=3`.
+7. **Default compute service account identification.** The default SA follows the pattern `PROJECT_NUMBER-compute@developer.gserviceaccount.com`. Grep for this pattern, not just the string "default."
 
 ---
 
@@ -219,6 +221,10 @@ Produce the final report using the structure defined in the Output Format sectio
 - Google Cloud Audit Logs: https://cloud.google.com/logging/docs/audit
 - Google Cloud VPC Documentation: https://cloud.google.com/vpc/docs
 - Google Cloud SQL Security: https://cloud.google.com/sql/docs/mysql/configure-ssl-instance
+- Google Cloud BigQuery authorized views: https://cloud.google.com/bigquery/docs/authorized-views
+- Google Cloud BigQuery row-level security: https://cloud.google.com/bigquery/docs/managing-row-level-security
+- Google Cloud BigQuery column-level access control: https://cloud.google.com/bigquery/docs/column-level-security
+- Google Cloud BigQuery IAM Conditions: https://cloud.google.com/bigquery/docs/conditions
 - Terraform Google Provider Documentation: https://registry.terraform.io/providers/hashicorp/google/latest/docs
 
 ---
