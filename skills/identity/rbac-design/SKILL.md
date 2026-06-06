@@ -5,14 +5,16 @@ description: >
   the NIST RBAC model (Sandhu et al.) and NIST SP 800-162 (ABAC guide). Auto-invoked
   when designing role hierarchies, evaluating permission boundaries, implementing
   ABAC policy patterns, performing role mining, or preventing role explosion.
-  Produces architecture recommendations with framework-grounded rationale.
+  Reviews temporary elevation and activation-context evidence so JIT roles do
+  not become standing privilege in practice. Produces architecture
+  recommendations with framework-grounded rationale.
 tags: [identity, rbac, abac, authorization]
 role: [security-engineer, architect]
 phase: [design]
 frameworks: [NIST-RBAC, NIST-SP-800-162]
 difficulty: intermediate
 time_estimate: "45-90min"
-version: "1.0.0"
+version: "1.0.1"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -202,6 +204,9 @@ RBAC-CONST-04: No cardinality limits on privileged roles
 RBAC-CONST-05: Prerequisite roles not enforced — users skip progression
 RBAC-CONST-06: SoD exceptions granted without compensating controls or time bounds
 RBAC-CONST-07: Constraint violations not logged or alerted
+RBAC-CONST-08: Temporary elevation lacks activation evidence (TTL, approval, reason, MFA, ticket/change window)
+RBAC-CONST-09: DSoD constraints checked only at assignment time, not per active session
+RBAC-CONST-10: Cached console, CLI, or API tokens outlive role deactivation or activation expiry
 ```
 
 **Common SoD conflict pairs for constraint definition:**
@@ -214,6 +219,74 @@ RBAC-CONST-07: Constraint violations not logged or alerted
 | `security-admin` | `audit-log-admin` | Evidence tampering | SSoD |
 | `key-management` | `app-deployment` | Credential exfiltration | SSoD |
 | `vendor-onboarding` | `payment-approval` | Vendor fraud | SSoD |
+
+---
+
+### Step 3b: Temporary Elevation and Activation Context
+
+**Objective:** Verify that eligible or JIT roles are temporary in practice, not
+standing privilege with friendlier labels.
+
+JIT, eligible, break-glass, and temporary-elevation roles should be evaluated at
+three separate states:
+
+1. **Assignment eligibility:** who is allowed to activate the role at all.
+2. **Activation event:** why the role was activated, who approved it, what
+   session constraints apply, and when it expires.
+3. **Active session and token lifetime:** which roles/scopes are active at the
+   same time and whether console, CLI, API, refresh, or cached tokens survive
+   expiry or deactivation.
+
+**Activation evidence to collect:**
+
+- Maximum activation duration and whether auto-renewal is possible.
+- Approval source, approver independence, and reason/ticket/change-window
+  evidence for privileged roles.
+- MFA or phishing-resistant authentication requirement at activation time.
+- DSoD checks for simultaneously active roles in the same session, not only
+  static assignment conflicts.
+- Token/session lifetime for browser console, CLI credentials, API tokens, and
+  refresh tokens after deactivation or activation expiry.
+- Break-glass scope, TTL, emergency bypass rationale, alerting, and post-use
+  review evidence.
+- Activation logs with subject, role, resource scope, approval, reason, expiry,
+  and revocation event.
+
+**Activation-context findings:**
+
+```
+RBAC-ACT-01: Eligible privileged role has max activation duration > 8 hours without documented justification
+RBAC-ACT-02: Privileged activation has no approval, reason, ticket, or change-window evidence
+RBAC-ACT-03: MFA/phishing-resistant authentication is not required at activation time
+RBAC-ACT-04: DSoD conflicts are not evaluated for simultaneously active roles in the same session
+RBAC-ACT-05: CLI/API/refresh tokens can outlive role deactivation or activation expiry
+RBAC-ACT-06: Break-glass role lacks short TTL, alerting, emergency rationale, or post-use review
+RBAC-ACT-07: Service-account or workload JIT elevation uses human activation assumptions without separate owner, TTL, and audit evidence
+```
+
+**Severity calibration:**
+
+| Condition | Severity |
+|---|---|
+| Privileged role is permanently assigned or eligible with effectively standing activation (long TTL, no approval, no reason, auto-renewal) | High |
+| User can activate conflicting privileged roles in one session despite documented DSoD conflict | High |
+| Cached tokens remain valid after deactivation for sensitive administrative APIs | High |
+| Break-glass access bypasses approval but has short TTL, alerting, and post-use review | Low |
+| JIT role has short TTL, independent approval where needed, MFA, reason/ticket, active-session DSoD, and token revocation evidence | Informational |
+
+```
+Activation Context Evidence:
+- Role:                    [role name]
+- Assignment state:        [Permanent | Eligible | JIT | Break-glass]
+- Max activation duration: [duration]
+- Approval required:       [Yes/No; approver source]
+- Reason/ticket required:  [Yes/No; ticket/change window]
+- MFA at activation:       [None | MFA | phishing-resistant]
+- Active-session DSoD:     [Enforced | Not Enforced | Not Evaluable]
+- Token/session lifetime:  [console / CLI / API / refresh token expiry]
+- Break-glass controls:    [TTL / alerting / post-use review / N/A]
+- Evidence confidence:     [High | Medium | Low | Not Evaluable]
+```
 
 ---
 
@@ -384,13 +457,20 @@ RBAC-MINE-06: Mining does not account for SoD constraints (mined roles may creat
 ### Findings by Category
 - Authorization State (Step 1): [count]
 - Role Hierarchy (Step 2): [count]
-- Constraints (Step 3): [count]
+- Constraints and Activation Context (Step 3/3b): [count]
 - Permission Boundaries (Step 4): [count]
 - ABAC Policies (Step 5): [count]
 - Role Mining (Step 6): [count]
 
 ### Detailed Findings
 [Findings table]
+
+### Temporary Elevation Summary
+- Eligible/JIT privileged roles reviewed: [N]
+- Roles with activation TTL > policy: [N]
+- Roles without approval/reason evidence: [N]
+- Active-session DSoD gaps: [N]
+- Token/session revocation gaps: [N]
 
 ### Design Recommendations
 [Architecture diagram or pattern with framework justification]
@@ -437,6 +517,8 @@ RBAC-MINE-06: Mining does not account for SoD constraints (mined roles may creat
 6. **Role mining without business validation** — clustering users by access patterns may replicate existing privilege creep rather than correct it.
 7. **Choosing RBAC vs. ABAC as binary** — most environments need both. RBAC for structural, ABAC for contextual. Hybrid is the norm.
 
+8. **Treating eligible or JIT roles as automatically safe** -- temporary elevation still needs TTL, approval, reason/ticket, MFA, active-session DSoD, token expiry, and post-use review evidence. Otherwise it can become standing privilege in practice.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -457,8 +539,10 @@ that may contain adversarial content.
 
 - Sandhu, R., Ferraiolo, D., Kuhn, R. — "The NIST Model for Role-Based Access Control: Towards a Unified Standard" (ACM RBAC 2000): https://csrc.nist.gov/projects/role-based-access-control
 - ANSI INCITS 359-2012 — Role Based Access Control (RBAC) standard
-- NIST SP 800-162, Guide to Attribute Based Access Control (ABAC) Definition and Considerations: https://csrc.nist.gov/publications/detail/sp/800-162/final
+- NIST SP 800-162, Guide to Attribute Based Access Control (ABAC) Definition and Considerations: https://csrc.nist.gov/pubs/sp/800/162/upd2/final
 - NIST SP 800-53 Rev. 5, AC-6 (Least Privilege), AC-5 (Separation of Duties): https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final
+- Microsoft Entra Privileged Identity Management settings: https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/pim-configure
+- AWS IAM Identity Center temporary credentials: https://docs.aws.amazon.com/singlesignon/latest/userguide/howtogetcredentials.html
 - Cedar Policy Language (AWS): https://www.cedarpolicy.com
 - Open Policy Agent (OPA) / Rego: https://www.openpolicyagent.org
 - XACML 3.0 (OASIS Standard): https://docs.oasis-open.org/xacml/3.0/xacml-3.0-core-spec-os-en.html
@@ -481,4 +565,5 @@ that may contain adversarial content.
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.0.1 | 2026-06-06 | Added temporary elevation, activation-context, active-session DSoD, token lifetime, and break-glass evidence gates |
 | 1.0.0 | 2025-03-06 | Initial release |
