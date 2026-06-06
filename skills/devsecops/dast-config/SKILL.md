@@ -331,6 +331,35 @@ env:
 
 ---
 
+#### 4.2 Multi-User Authorization and Session Isolation
+
+Authenticated scanning with a single generic user does not prove broken access control coverage. DAST authorization testing needs at least two isolated identities per relevant role so the scanner can replay discovered requests across users, roles, tenants, and ownership boundaries without contaminating cookies, CSRF tokens, or bearer tokens.
+
+**Required evidence:**
+
+| Evidence | What to verify | Risk if missing |
+|---|---|---|
+| Role/user matrix | Low-privilege user, peer user, elevated user, tenant B user, and negative-control unauthenticated user where applicable | IDOR/BOLA and role-escalation paths are not exercised |
+| Session isolation | Separate cookie jars, bearer tokens, CSRF tokens, device/session IDs, and browser contexts for each identity | requests may pass because the scanner reused a stronger session |
+| Authorization replay | Requests captured as one user are replayed as a peer/lower-privilege user with expected 401/403/404 or filtered response | object-level and function-level authorization gaps are missed |
+| State reset | Test data seeded per role/tenant and reset after active scans | mutated state can hide findings or create false positives |
+| Evidence capture | Baseline response, replay response, user/role, object owner, tenant, expected outcome, and actual outcome are recorded | findings cannot be validated or deduplicated safely |
+
+**What to verify:**
+
+- [ ] DAST configuration defines at least two users for each authorization boundary being tested.
+- [ ] Each identity has an independent session store; scanner jobs do not share cookies or tokens across users.
+- [ ] The scan includes peer-object tests such as `/users/A/orders/1` replayed as user B.
+- [ ] Role tests include lower-privilege replay of admin/editor requests.
+- [ ] Tenant tests include cross-tenant replay for SaaS or multi-tenant systems.
+- [ ] CSRF tokens and anti-automation defenses are refreshed per identity rather than copied from the original user.
+- [ ] Expected-deny responses are asserted; HTTP 200 with redacted or filtered data is evaluated against the data returned.
+- [ ] Reports distinguish authorization testing coverage from general authenticated crawling coverage.
+
+**Finding classification:** Single-user authenticated scanning claimed as broken-access-control coverage is **High**. Shared session state across identities is **High**. No cross-user replay evidence for multi-tenant or object-owned APIs is **High**; **Critical** when the app handles regulated data or privileged operations.
+
+---
+
 ### Step 5: CI/CD DAST Integration
 
 #### 5.1 Pipeline Integration Patterns
@@ -518,7 +547,14 @@ DAST tools report findings per-URL, producing hundreds of duplicate alerts for t
 | Passive scanning in CI | Yes/No | <workflow file> |
 | Active scanning (staging) | Yes/No | <workflow file> |
 | API scanning | Yes/No | <OpenAPI/GraphQL import> |
+| Multi-user authorization replay | Yes/No | <role matrix and replay evidence> |
 | Results deduplication | Yes/No | <dedup method> |
+
+### Authorization Replay Evidence
+
+| Boundary | Source identity | Replay identity | Request/object | Expected result | Actual result | Session isolation evidence |
+|----------|----------------|-----------------|----------------|-----------------|---------------|----------------------------|
+| Peer object | user-a | user-b | /orders/123 | 403 or filtered | <observed> | <separate cookie jar/token> |
 
 ### Findings
 
@@ -578,11 +614,13 @@ DAST tools report findings per-URL, producing hundreds of duplicate alerts for t
 
 2. **Skipping authenticated scanning because "it is hard to configure."** Unauthenticated DAST sees the login page and public content -- typically less than 10% of the application surface. The effort to configure authentication pays for itself immediately. Use browser-based authentication for SPAs and header-based for APIs.
 
-3. **Not excluding destructive endpoints from scan scope.** ZAP's spider will follow every link and form action it finds. If a "Delete Account" or "Reset Database" endpoint is in scope, the scanner will exercise it. Explicitly exclude destructive paths in the scan context.
+3. **Equating one authenticated user with authorization coverage.** A scan that logs in as a single realistic user can crawl private pages, but it cannot prove object ownership, tenant isolation, or role boundaries. Use separate identities and replay captured requests across roles/users with isolated sessions.
 
-4. **Treating DAST findings as ground truth without validation.** DAST tools have significant false positive rates, especially for injection findings. Every high-severity DAST finding must be manually validated before filing a remediation ticket. Build validation into the triage workflow.
+4. **Not excluding destructive endpoints from scan scope.** ZAP's spider will follow every link and form action it finds. If a "Delete Account" or "Reset Database" endpoint is in scope, the scanner will exercise it. Explicitly exclude destructive paths in the scan context.
 
-5. **Running only scheduled weekly scans instead of integrating into CI.** Weekly scans create a feedback loop measured in days. Passive baseline scans in CI (on every PR) give developers immediate feedback on security header regressions and configuration issues, while weekly full scans provide comprehensive active testing coverage.
+5. **Treating DAST findings as ground truth without validation.** DAST tools have significant false positive rates, especially for injection findings. Every high-severity DAST finding must be manually validated before filing a remediation ticket. Build validation into the triage workflow.
+
+6. **Running only scheduled weekly scans instead of integrating into CI.** Weekly scans create a feedback loop measured in days. Passive baseline scans in CI (on every PR) give developers immediate feedback on security header regressions and configuration issues, while weekly full scans provide comprehensive active testing coverage.
 
 ---
 
