@@ -290,6 +290,108 @@ resource "azurerm_storage_account" {
 }
 ```
 
+### Storage Shared Key and SAS authorization evidence gates
+
+These checks supplement the CIS Storage controls when storage accounts contain
+sensitive, regulated, backup, diagnostic, or customer data. Do not treat
+`default_action = "Deny"`, private endpoints, HTTPS-only, and disabled blob
+public access as proof that the data-plane authorization path is least
+privilege.
+
+#### Shared Key authorization
+
+Record whether Shared Key authorization is explicitly disallowed. Microsoft
+recommends Microsoft Entra authorization over Shared Key where supported, and
+disallowing Shared Key is required before Microsoft Entra Conditional Access can
+protect Storage data access.
+
+```hcl
+# GOOD: Account-key authorization disabled for supported workloads.
+resource "azurerm_storage_account" "secure" {
+  shared_access_key_enabled = false
+}
+
+# REVIEW: If Shared Key remains enabled, require workload justification,
+# affected services, `listkeys` role assignments, key rotation evidence, and
+# SAS controls.
+resource "azurerm_storage_account" "legacy_files" {
+  shared_access_key_enabled = true
+}
+```
+
+For ARM/Bicep evidence, review `properties.allowSharedKeyAccess`. For live
+evidence, `az storage account show --query "allowSharedKeyAccess"` should return
+`false` for accounts where Shared Key is not required.
+
+Flag as High when sensitive Storage Accounts allow Shared Key without a
+documented workload exception, migration plan to Microsoft Entra/user-delegation
+authorization, key rotation evidence, and monitoring for key/SAS usage.
+
+#### SAS expiration policy and enforcement
+
+If SAS is required, record the SAS type, maximum validity interval, expiration
+action, diagnostic logs, and whether out-of-policy SAS usage is blocked or only
+logged.
+
+```hcl
+resource "azurerm_storage_account" "with_sas_policy" {
+  shared_access_key_enabled = true
+
+  sas_policy {
+    expiration_period = "01.00:00:00"
+    expiration_action = "Block"
+  }
+}
+```
+
+For ARM/Bicep evidence, inspect:
+
+```bicep
+properties: {
+  sasPolicy: {
+    sasExpirationPeriod: '01.00:00:00'
+    expirationAction: 'Block'
+  }
+}
+```
+
+Flag as High when account SAS or service SAS is used for sensitive data with no
+SAS expiration policy. Flag as Medium when policy action is `Log` only for a
+production sensitive account or when diagnostic logs do not capture
+`SasExpiryStatus` evidence.
+
+#### Stored access policies and revocation path
+
+For service SAS, verify whether a stored access policy is used so expiry and
+permissions can be changed server-side after issuance. If ad hoc SAS tokens are
+used, reviewers should document the token lifetime and the emergency revocation
+path, usually account-key rotation.
+
+```text
+SAS inventory:
+  type: service SAS
+  stored access policy: container-read-24h
+  expiry: 24h
+  permissions: read only
+  revocation path: delete/rename stored access policy
+```
+
+Flag as High when long-lived ad hoc SAS tokens grant write/delete/list access
+and the only revocation path is account-key rotation. Flag as Not Evaluable when
+review evidence contains generated SAS URLs or variables but omits SAS type,
+expiry, permissions, IP/protocol restrictions, and revocation method.
+
+#### RBAC access to account keys
+
+Identify principals with `Microsoft.Storage/storageAccounts/listkeys/action`,
+`Owner`, `Contributor`, `Storage Account Contributor`, or custom roles that can
+retrieve account keys. These principals can create Shared Key authorization and
+account/service SAS paths even if they are not data readers through Azure RBAC.
+
+Flag as High when broad human or workload identities can list storage account
+keys for sensitive accounts without approval, just-in-time access, rotation, and
+monitoring.
+
 ---
 
 ## Section 4 -- Database Services

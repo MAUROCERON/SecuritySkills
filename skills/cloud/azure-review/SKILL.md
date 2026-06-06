@@ -54,6 +54,7 @@ The CIS Microsoft Azure Foundations Benchmark v2.1.0 is a consensus-driven secur
 - Entra ID (Azure AD) configuration files or policy documents
 - NSG and firewall rule definitions
 - Key Vault access policies and RBAC assignments
+- Storage account Shared Key, SAS expiration policy, diagnostic logging, Azure Policy, and data-plane authorization evidence when Storage Accounts are in scope
 
 ---
 
@@ -102,7 +103,7 @@ Produce the final report using the structure defined in the Output Format sectio
 | Severity | Definition | Examples |
 |----------|-----------|----------|
 | **Critical** | Immediate risk of data breach or unauthorized access | NSGs open to 0.0.0.0/0 on RDP/SSH, SQL databases publicly accessible, Defender for Cloud disabled |
-| **High** | Significant security gap that materially weakens posture | Missing MFA enforcement, storage accounts with public access, Key Vault without purge protection |
+| **High** | Significant security gap that materially weakens posture | Missing MFA enforcement, storage accounts with public access, Shared Key/SAS left enabled for sensitive storage without compensating controls, Key Vault without purge protection |
 | **Medium** | Control gap that should be addressed in normal cycle | Missing activity log alerts, soft delete not enabled, TLS below 1.2 |
 | **Low** | Hardening recommendation or defense-in-depth measure | HTTP/2 not enabled, FTP not fully disabled, missing CMK on non-sensitive storage |
 | **Informational** | Best practice observation, no direct security impact | Naming conventions, tag policies, documentation gaps |
@@ -177,7 +178,7 @@ Produce the final report using the structure defined in the Output Format sectio
 |---------|--------|-----------------|
 | 1 | Identity and Access Management | Entra ID security defaults, MFA enforcement, Conditional Access policies, guest user management, PIM configuration |
 | 2 | Microsoft Defender for Cloud | Defender plan enablement (Servers, App Service, SQL, Storage, Containers, Key Vault, DNS, ARM), security contacts, auto-provisioning |
-| 3 | Storage Accounts | HTTPS enforcement, infrastructure encryption, public access, network rules, soft delete, CMK encryption, TLS version |
+| 3 | Storage Accounts | HTTPS enforcement, infrastructure encryption, public access, network rules, soft delete, CMK encryption, TLS version, Shared Key/SAS authorization controls |
 | 4 | Database Services | SQL auditing, firewall rules, threat detection, SSL enforcement, TDE, Entra ID admin, Cosmos DB public access |
 | 5 | Logging and Monitoring | Diagnostic settings, activity log alerts (policy, NSG, SQL firewall, public IP), Key Vault logging, Network Watcher |
 | 6 | Networking | NSG rules (RDP, SSH, UDP, HTTP), flow log retention, traffic analytics |
@@ -197,9 +198,10 @@ Produce the final report using the structure defined in the Output Format sectio
 1. **Confusing Entra ID Security Defaults with Conditional Access.** CIS 1.1.1 accepts either, but if Conditional Access is used, Security Defaults must be disabled. Do not flag this as a failure if equivalent CA policies exist.
 2. **Missing Defender for Cloud plan coverage.** Each resource type (Servers, SQL, Storage, etc.) requires its own Defender plan enablement. A single `azurerm_security_center_subscription_pricing` resource only covers one type.
 3. **Overlooking `allow_nested_items_to_be_public` on storage accounts.** CIS 3.7 checks the account-level setting, not individual container access levels. The account setting must be `false` to prevent any container from being public.
-4. **NSG rules using service tags.** A rule with `source_address_prefix = "Internet"` is equivalent to `0.0.0.0/0`. Both must be flagged for CIS 6.1 and 6.2.
-5. **Key Vault purge protection is irreversible.** CIS 8.5 requires `purge_protection_enabled = true`. Note this cannot be disabled once enabled -- flag this for awareness during remediation.
-6. **App Service TLS version on both Linux and Windows.** Check `azurerm_linux_web_app` and `azurerm_windows_web_app` resources separately.
+4. **Treating network-deny as proof that storage data-plane auth is safe.** A storage account can deny public network access and still allow account-key or SAS access from trusted paths. Review `allowSharedKeyAccess`, `shared_access_key_enabled`, SAS expiration policy, `listkeys` permissions, and SAS diagnostic evidence separately.
+5. **NSG rules using service tags.** A rule with `source_address_prefix = "Internet"` is equivalent to `0.0.0.0/0`. Both must be flagged for CIS 6.1 and 6.2.
+6. **Key Vault purge protection is irreversible.** CIS 8.5 requires `purge_protection_enabled = true`. Note this cannot be disabled once enabled -- flag this for awareness during remediation.
+7. **App Service TLS version on both Linux and Windows.** Check `azurerm_linux_web_app` and `azurerm_windows_web_app` resources separately.
 
 ---
 
@@ -223,6 +225,10 @@ Produce the final report using the structure defined in the Output Format sectio
 - Microsoft Defender for Cloud Documentation: https://learn.microsoft.com/en-us/azure/defender-for-cloud/
 - Microsoft Entra ID Security: https://learn.microsoft.com/en-us/entra/identity/
 - Azure Storage Security: https://learn.microsoft.com/en-us/azure/storage/common/storage-security-guide
+- Azure Storage Shared Key authorization prevention: https://learn.microsoft.com/en-us/azure/storage/common/shared-key-authorization-prevent
+- Azure Storage SAS expiration policy: https://learn.microsoft.com/en-us/azure/storage/common/sas-expiration-policy
+- Azure Storage stored access policy: https://learn.microsoft.com/en-us/rest/api/storageservices/define-stored-access-policy
+- Azure Storage data access authorization: https://learn.microsoft.com/en-us/azure/storage/common/authorize-data-access
 - Azure Key Vault Best Practices: https://learn.microsoft.com/en-us/azure/key-vault/general/best-practices
 - Azure App Service Security: https://learn.microsoft.com/en-us/azure/app-service/overview-security
 - Terraform AzureRM Provider Documentation: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs
