@@ -41,6 +41,19 @@ resource "google_service_account_key" {
 
 Look for any `google_service_account_key` resources. GCP-managed keys (used automatically by Compute Engine, GKE, etc.) do not require explicit creation.
 
+**Validated Hybrid-Cloud SA Key Exception:**
+
+Do not automatically score every user-managed key as Critical when the evidence proves a constrained legacy hybrid workload. Require all of the following before downgrading:
+
+- Workload Identity Federation or another keyless option is unavailable for the external provider.
+- Key has a documented owner, business justification, and exception expiry.
+- Rotation period is 90 days or fewer and last rotation evidence is available.
+- The service account is not bound to project-level `roles/owner`, `roles/editor`, or broad admin roles.
+- Usage is limited by IAM Conditions, network/source controls, or workload-specific scope where possible.
+- A migration plan exists to remove the key when keyless federation becomes available.
+
+If any evidence is missing, keep the finding High/Critical and mark the exception Not Evaluable.
+
 ### CIS 1.5 -- Ensure that Service Account Has No Admin Privileges
 
 **Grep patterns:**
@@ -136,6 +149,34 @@ resource "google_apikeys_key" {
 ### CIS 1.15 -- Ensure API Keys Are Rotated Within 90 Days
 
 Check for key creation timestamps and rotation policies.
+
+### Organization Policy Drift Evidence Gate
+
+Org policies can be set at organization, folder, and project scope. Before passing controls that rely on organization policy enforcement, verify the effective policy and check for lower-scope overrides.
+
+**Grep patterns:**
+
+```hcl
+# Legacy and current org policy resources
+resource "google_organization_policy"
+resource "google_folder_organization_policy"
+resource "google_project_organization_policy"
+resource "google_org_policy_policy"
+
+# Possible override or restore-default indicators
+restore_policy
+restore_default
+enforce = false
+enforced = false
+```
+
+**What to verify:**
+
+- Root organization policy is enforced for the relevant constraint.
+- Folder/project policies do not weaken, restore default, or contradict the root policy.
+- Effective policy export is available (`gcloud org-policies describe --effective` or equivalent evidence).
+- The denominator of folders/projects covered by the policy is known.
+- Missing effective-policy evidence is `Not Evaluable`, not Pass.
 
 ### CIS 1.16 -- Ensure Essential Contacts Is Configured for Organization
 
@@ -532,11 +573,24 @@ resource "google_compute_instance" {
 }
 ```
 
+**Evidence gate for sensitive workloads:**
+
+- Identify VMs processing regulated, payment, healthcare, ML-feature, key-management, or other high-value in-memory data.
+- Verify the machine family supports Confidential VM before scoring as Fail.
+- If supported and sensitive data is processed in memory, missing `enable_confidential_compute = true` is at least Medium, and may be High for Level 2 workloads.
+- If not supported, record the non-applicability reason and compensating controls.
+
+**gcloud check:**
+
+```bash
+gcloud compute instances describe INSTANCE --zone ZONE --format="value(confidentialInstanceConfig.enableConfidentialCompute)"
+```
+
 ---
 
 ## Section 5 -- Storage
 
-Evaluate Cloud Storage configurations against CIS GCP v2.0.0 Section 5 recommendations.
+Evaluate Cloud Storage and Artifact Registry configurations against CIS GCP v2.0.0 Section 5 recommendations and related container/package storage evidence gates.
 
 ### CIS 5.1 -- Ensure that Cloud Storage Bucket Is Not Anonymously or Publicly Accessible
 
@@ -570,6 +624,42 @@ resource "google_organization_policy" {
 resource "google_storage_bucket" {
   uniform_bucket_level_access = true  # Must be true
 }
+```
+
+### Artifact Registry Vulnerability Scanning Evidence Gate
+
+Artifact Registry is the successor to Container Registry for many container and package workflows. GCS bucket checks do not prove image/package repository security.
+
+**Grep patterns:**
+
+```hcl
+resource "google_artifact_registry_repository"
+mode = "REMOTE_REPOSITORY"
+format = "DOCKER"
+format = "NPM"
+format = "PYTHON"
+```
+
+**What to verify:**
+
+- Production container/image repositories have automatic vulnerability scanning or Artifact Analysis findings evidence.
+- Image digests, not only mutable tags, are recorded for deployed workloads.
+- Vulnerability findings from Artifact Analysis/Security Command Center are reviewed and tied to remediation ownership.
+- Remote repositories are restricted to approved upstream domains and do not silently proxy untrusted package sources.
+- Repository IAM does not grant public or broad write access.
+- Missing scanning/finding evidence for production images is High. Missing trusted-upstream policy for remote repositories is Medium/High depending on exposure.
+
+**gcloud checks:**
+
+```bash
+# List repositories and modes
+gcloud artifacts repositories list --location=LOCATION --format="table(name,format,mode)"
+
+# List container image digests
+gcloud artifacts docker images list LOCATION-docker.pkg.dev/PROJECT/REPOSITORY --include-tags
+
+# Review Artifact Analysis occurrences for an image digest
+gcloud artifacts docker images describe IMAGE_URL@sha256:DIGEST --show-package-vulnerability
 ```
 
 ---

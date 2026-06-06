@@ -51,9 +51,11 @@ The CIS Google Cloud Platform Foundation Benchmark v2.0.0 is a consensus-driven 
 
 - Access to GCP infrastructure-as-code files (Terraform `.tf`, Deployment Manager `.yaml`/`.jinja`)
 - gcloud CLI output or configuration exports (if reviewing a live environment)
-- IAM policy bindings and org policy definitions
+- IAM policy bindings and org policy definitions, including effective org/folder/project policy exports when available
 - VPC and firewall rule definitions
 - Cloud Audit Logs configuration
+- Artifact Registry repositories, vulnerability-scanning findings, remote repository upstreams, and container/image digest inventory
+- Workload data classification for VMs that process sensitive data in memory, to determine whether Confidential VM evidence is required
 
 ---
 
@@ -100,8 +102,8 @@ Produce the final report using the structure defined in the Output Format sectio
 | Severity | Definition | Examples |
 |----------|-----------|----------|
 | **Critical** | Immediate risk of data breach or unauthorized access | Public GCS buckets, firewall rules allowing 0.0.0.0/0 on SSH/RDP, Cloud SQL with public IP and no SSL, user-managed SA keys with admin roles |
-| **High** | Significant security gap that materially weakens posture | Default service accounts with broad scopes, missing Cloud Audit Logs, no VPC flow logs, instances with public IPs |
-| **Medium** | Control gap that should be addressed in normal cycle | Missing log metric filters, DNSSEC not enabled, Shielded VM not enabled, uniform bucket access not set |
+| **High** | Significant security gap that materially weakens posture | Default service accounts with broad scopes, missing Cloud Audit Logs, no VPC flow logs, instances with public IPs, production Artifact Registry images without vulnerability-scanning evidence, org policies overridden at project level |
+| **Medium** | Control gap that should be addressed in normal cycle | Missing log metric filters, DNSSEC not enabled, Shielded VM not enabled, uniform bucket access not set, remote Artifact Registry upstreams not allowlisted, Confidential VM evidence missing for sensitive workloads |
 | **Low** | Hardening recommendation or defense-in-depth measure | OS Login not enabled, serial port access not explicitly disabled, BigQuery tables without CMEK |
 | **Informational** | Best practice observation, no direct security impact | Default network still exists (non-production), naming conventions, documentation gaps |
 
@@ -175,7 +177,7 @@ Produce the final report using the structure defined in the Output Format sectio
 | 2 | Logging and Monitoring | Cloud Audit Logs (admin/data read/write), log sinks, bucket lock retention, metric filters and alerts (8 categories), DNS logging, Cloud Asset Inventory |
 | 3 | Networking | Default network removal, legacy networks, DNSSEC, firewall rules (SSH/RDP from internet), VPC flow logs, SSL policies, IAP-only access |
 | 4 | Virtual Machines | Default service accounts, access scopes, project SSH key blocking, OS Login, serial port, IP forwarding, CMEK disks, Shielded VM, public IPs, Confidential Computing |
-| 5 | Storage | Public bucket access, uniform bucket-level access |
+| 5 | Storage | Public bucket access, uniform bucket-level access, Artifact Registry vulnerability scanning, remote repository upstream restrictions |
 | 6 | Cloud SQL | MySQL/PostgreSQL/SQL Server database flags, SSL enforcement, authorized networks, public IP, automated backups |
 | 7 | BigQuery | Public dataset access, CMEK encryption for tables and datasets |
 
@@ -188,12 +190,15 @@ Produce the final report using the structure defined in the Output Format sectio
 
 ## Common Pitfalls
 
-1. **Missing org-level policy checks.** Many CIS controls (e.g., 3.1 default network, 5.1 public access) can be enforced via org policies. Check both resource-level configuration and org policy constraints.
-2. **Confusing GCP-managed vs. user-managed service account keys.** CIS 1.4 only flags user-managed keys (created via `google_service_account_key`). Keys automatically managed by GCP services are acceptable.
+1. **Missing org-level policy checks.** Many CIS controls (e.g., 3.1 default network, 5.1 public access) can be enforced via org policies. Check both resource-level configuration and org policy constraints, then verify the effective policy at folder/project scope so inheritance overrides are not missed.
+2. **Confusing GCP-managed vs. user-managed service account keys.** CIS 1.4 only flags user-managed keys (created via `google_service_account_key`). Keys automatically managed by GCP services are acceptable. For legacy hybrid workloads, downgrade only when a time-bound exception proves Workload Identity Federation is unavailable, rotation is <= 90 days, project-level owner/editor is absent, and a migration owner/date is recorded.
 3. **VPC flow logs must be per-subnet.** CIS 3.8 requires flow logs on every subnet, not just the VPC. Each `google_compute_subnetwork` must have a `log_config` block.
 4. **Cloud SQL authorized_networks vs. private IP.** CIS 6.5 flags `0.0.0.0/0` in authorized networks, but CIS 6.6 goes further and recommends disabling public IP entirely in favor of private networking.
 5. **BigQuery dataset-level vs. table-level CMEK.** CIS 7.2 checks table-level encryption, while CIS 7.3 checks the dataset default. Both should be evaluated independently.
 6. **Default compute service account identification.** The default SA follows the pattern `PROJECT_NUMBER-compute@developer.gserviceaccount.com`. Grep for this pattern, not just the string "default."
+7. **Artifact Registry is not Cloud Storage.** GCS bucket checks do not prove container/package repository safety. Review Artifact Registry repository mode, vulnerability-scanning findings, image digests, remote upstream allowlists, and package provenance separately.
+8. **Organization policy drift can hide below the root.** A root-level `enforced = true` policy can be weakened by folder/project policy, restore-default settings, or legacy `google_project_organization_policy` resources. Require effective policy exports or mark the control Not Evaluable.
+9. **Confidential VM is workload-sensitive.** CIS 4.11 is most meaningful for sensitive in-memory workloads. If the machine family supports Confidential VM and the workload handles regulated or high-value data, missing `confidential_instance_config` should be evaluated explicitly.
 
 ---
 
