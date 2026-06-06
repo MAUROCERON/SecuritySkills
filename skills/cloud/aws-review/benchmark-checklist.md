@@ -405,6 +405,96 @@ aws_securityhub_account
 aws_securityhub_standards_subscription
 ```
 
+### Supplemental -- GuardDuty detector and protection-plan coverage
+
+Security Hub enabled is not sufficient evidence that GuardDuty is enabled,
+organization-wide, and routed to an operational response path. When production
+or internet-facing AWS accounts are in scope, review GuardDuty coverage as a
+supplemental monitoring control.
+
+#### Detector and organization coverage
+
+```hcl
+resource "aws_guardduty_detector" "detector" {
+  enable = true
+}
+
+resource "aws_guardduty_organization_admin_account" "delegated" {
+  admin_account_id = var.security_account_id
+}
+
+resource "aws_guardduty_organization_configuration" "org" {
+  detector_id                      = aws_guardduty_detector.detector.id
+  auto_enable_organization_members = "ALL"
+}
+```
+
+Review account and Region denominators. Flag as Medium when auto-enable is
+`NONE` or only covers new accounts while existing member accounts remain outside
+GuardDuty.
+
+#### Protection-plan feature coverage
+
+```hcl
+resource "aws_guardduty_organization_configuration_feature" "s3" {
+  detector_id = aws_guardduty_detector.detector.id
+  name        = "S3_DATA_EVENTS"
+  auto_enable = "ALL"
+}
+
+resource "aws_guardduty_organization_configuration_feature" "runtime" {
+  detector_id = aws_guardduty_detector.detector.id
+  name        = "RUNTIME_MONITORING"
+  auto_enable = "ALL"
+
+  additional_configuration {
+    name        = "EKS_ADDON_MANAGEMENT"
+    auto_enable = "ALL"
+  }
+
+  additional_configuration {
+    name        = "ECS_FARGATE_AGENT_MANAGEMENT"
+    auto_enable = "ALL"
+  }
+
+  additional_configuration {
+    name        = "EC2_AGENT_MANAGEMENT"
+    auto_enable = "ALL"
+  }
+}
+```
+
+Check feature names such as `S3_DATA_EVENTS`, `EKS_AUDIT_LOGS`,
+`RUNTIME_MONITORING`, `EBS_MALWARE_PROTECTION`, `RDS_LOGIN_EVENTS`, and
+`LAMBDA_NETWORK_LOGS`. For sensitive S3 upload workflows, also review
+`aws_guardduty_malware_protection_plan` or equivalent Malware Protection for S3
+configuration.
+
+Flag as Medium when workload-relevant protection plans are disabled without a
+documented exception. Flag as Not Evaluable when the workload inventory is
+missing, because the reviewer cannot determine whether disabled protection
+plans are justified.
+
+#### Finding delivery, retention, and suppression filters
+
+```hcl
+resource "aws_guardduty_publishing_destination" "findings" {
+  detector_id     = aws_guardduty_detector.detector.id
+  destination_arn = aws_s3_bucket.guardduty_findings.arn
+  kms_key_arn     = aws_kms_key.guardduty_findings.arn
+}
+```
+
+Verify GuardDuty findings are routed through EventBridge or an equivalent SOC
+workflow, and that optional S3 exports are encrypted with KMS when historical
+retention is required. Review `aws_guardduty_filter` resources for suppression
+logic that archives findings.
+
+Flag as High when high/critical finding types are suppressed without owner,
+reason, expiry, and review evidence. Flag as Medium when findings are generated
+but not routed to alerting/ticketing or encrypted historical export where the
+organization requires retention beyond GuardDuty's active finding window.
+
 ---
 
 ## Section 5 -- Networking

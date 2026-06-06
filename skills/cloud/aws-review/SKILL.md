@@ -6,14 +6,15 @@ description: >
   IAM policies, S3 configurations, CloudTrail settings, VPC security groups, or
   RDS encryption. Walks through all five benchmark sections, evaluates each
   recommendation, and produces a prioritized findings report with remediation
-  guidance mapped to specific CIS control IDs.
+  guidance mapped to specific CIS control IDs, with supplemental GuardDuty
+  protection-plan coverage evidence.
 tags: [cloud, aws, cis-benchmark]
 role: [cloud-security-engineer, security-engineer]
 phase: [assess, operate]
 frameworks: [CIS-AWS-v3.0.0]
 difficulty: intermediate
 time_estimate: "60-90min"
-version: "1.0.0"
+version: "1.0.1"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -55,6 +56,7 @@ The CIS Amazon Web Services Foundations Benchmark v3.0.0 is a consensus-driven s
 - S3 bucket policies and ACL configurations
 - VPC, security group, and NACL definitions
 - CloudTrail and CloudWatch configuration files
+- GuardDuty detector, delegated administrator, organization auto-enable, protection plan, finding export, and EventBridge/S3 destination evidence when threat detection is in scope
 
 ---
 
@@ -99,6 +101,62 @@ For detailed CIS benchmark checklist items with specific Terraform patterns, gre
 
 ---
 
+### Step 6a: GuardDuty Protection Plan Coverage
+
+Review GuardDuty as supplemental AWS threat-detection posture evidence. This
+does not replace CIS Security Hub, CloudTrail, or CloudWatch alarm checks. It
+prevents overclaiming detection coverage when GuardDuty is enabled only in a
+single account/Region or when important protection plans are disabled.
+
+**What to collect:**
+
+- GuardDuty detector status per in-scope account and Region.
+- Delegated administrator and organization configuration, including auto-enable status for new and existing member accounts.
+- Enabled protection plans and feature status for S3 Protection, EKS Audit Logs, Runtime Monitoring, Malware Protection for EC2, RDS Protection, Lambda Protection, and Malware Protection for S3 or AWS Backup when relevant.
+- Runtime Monitoring security-agent management status for EKS, ECS/Fargate, and EC2 workloads where applicable.
+- Finding delivery path, including EventBridge rules, optional S3 export destination, KMS key, and export frequency.
+- Suppressed/archived GuardDuty findings and filters, with owner, reason, expiration/review date, and compensating evidence.
+- Account and Region coverage denominator, including suspended, newly created, standalone, and management/delegated admin accounts.
+
+**Detection patterns:**
+
+```
+aws_guardduty_detector
+aws_guardduty_detector_feature
+aws_guardduty_organization_admin_account
+aws_guardduty_organization_configuration
+aws_guardduty_organization_configuration_feature
+aws_guardduty_malware_protection_plan
+aws_guardduty_publishing_destination
+AWS::GuardDuty::Detector
+S3_DATA_EVENTS
+EKS_AUDIT_LOGS
+RUNTIME_MONITORING
+EBS_MALWARE_PROTECTION
+RDS_LOGIN_EVENTS
+LAMBDA_NETWORK_LOGS
+```
+
+**Finding calibration:**
+
+| Condition | Severity |
+|---|---|
+| GuardDuty is disabled for a production or internet-facing account and no equivalent threat detection is evidenced | High |
+| GuardDuty is enabled but organization auto-enable is disabled or does not cover existing and new member accounts | Medium |
+| Workload-relevant protection plans are disabled (for example S3 Protection for sensitive S3 data or Runtime Monitoring for EKS/ECS/EC2 workloads) without a documented exception | Medium |
+| GuardDuty findings are not routed to an operational alerting or ticketing path, or S3 export/KMS evidence is missing where historical retention is required | Medium |
+| Suppression filters archive high/critical finding types without owner, reason, expiry, and review evidence | High |
+| GuardDuty is enabled, protection plans match workload inventory, findings route to EventBridge/SOC, and S3 export is encrypted where required | Informational |
+
+**Important limitations:**
+
+- GuardDuty findings are detection signals, not proof that the underlying exposure or vulnerability has been remediated.
+- Security Hub enabled does not prove GuardDuty detector, protection-plan, or finding-export coverage.
+- Runtime Monitoring requires security-agent coverage; enabling the feature without agent status evidence may still leave workload gaps.
+- Malware Protection for S3 can be used independently of foundational GuardDuty, so record whether the organization is using the independent plan or the broader GuardDuty service.
+
+---
+
 ### Step 7: Compile Assessment Report
 
 Produce the final report using the structure defined in the Output Format section.
@@ -110,7 +168,7 @@ Produce the final report using the structure defined in the Output Format sectio
 | Severity | Definition | Examples |
 |----------|-----------|----------|
 | **Critical** | Immediate risk of data breach or account compromise | Public S3 buckets with sensitive data, `*:*` admin policies on users, security groups open to 0.0.0.0/0 on admin ports |
-| **High** | Significant security gap that materially weakens posture | Missing CloudTrail, no MFA enforcement, unencrypted RDS, IMDSv1 enabled |
+| **High** | Significant security gap that materially weakens posture | Missing CloudTrail, no MFA enforcement, unencrypted RDS, IMDSv1 enabled, GuardDuty disabled for production accounts with no equivalent detection |
 | **Medium** | Control gap that should be addressed in normal cycle | Missing log metric filters, password policy below requirements, no VPC flow logs |
 | **Low** | Hardening recommendation or defense-in-depth measure | Missing Macie classification, no hardware MFA on root (when virtual MFA exists), missing access analyzer in non-primary regions |
 | **Informational** | Best practice observation, no direct security impact | Naming conventions, tag hygiene, documentation gaps |
@@ -146,6 +204,18 @@ Produce the final report using the structure defined in the Output Format sectio
 | 4 | Monitoring | X/16 | Y | Z | nn% |
 | 5 | Networking | X/6 | Y | Z | nn% |
 
+### GuardDuty Coverage Evidence
+
+| Field | Value |
+|---|---|
+| Detector status by account/Region | <coverage denominator or Not Evaluable> |
+| Delegated admin account | <account ID or Not Evaluable> |
+| Organization auto-enable | <ALL / NEW / NONE / Not Evaluable> |
+| Protection plans enabled | <S3 / EKS / Runtime / EC2 malware / S3 malware / RDS / Lambda / Backup> |
+| Workload coverage gaps | <S3 buckets / EKS clusters / ECS tasks / EC2 instances / RDS databases / Lambda functions> |
+| Finding delivery | <EventBridge / S3 export / Detective / ticketing / Not Evaluable> |
+| Suppression filters reviewed | <Yes / No / Not Evaluable> |
+
 ### Detailed Findings
 
 #### [CIS X.Y] <Recommendation Title>
@@ -154,6 +224,7 @@ Produce the final report using the structure defined in the Output Format sectio
 - **CIS Profile:** Level 1 / Level 2
 - **File:** <path to relevant config>
 - **Line(s):** <line numbers if applicable>
+- **Evidence Scope:** <account / OU / organization / Region / Not Evaluable>
 - **Description:** <what was found>
 - **Evidence:** <specific configuration or code snippet>
 - **Remediation:** <specific fix with code example>
@@ -182,7 +253,7 @@ Produce the final report using the structure defined in the Output Format sectio
 | 1 | Identity and Access Management | 22 | Root account security, MFA, password policy, access keys, IAM policies, Access Analyzer, identity federation |
 | 2 | Storage | 10 | S3 bucket security (public access, encryption, TLS), EBS encryption, RDS encryption and access, EFS encryption |
 | 3 | Logging | 11 | CloudTrail (multi-region, validation, encryption), AWS Config, S3 access logging, VPC flow logs, object-level logging |
-| 4 | Monitoring | 16 | CloudWatch metric filters and alarms for 15 critical event types, Security Hub enablement |
+| 4 | Monitoring | 16 | CloudWatch metric filters and alarms for 15 critical event types, Security Hub enablement, GuardDuty detection coverage |
 | 5 | Networking | 6 | NACL restrictions, security group hardening, default SG lockdown, VPC peering routes, IMDSv2 enforcement |
 
 ### CIS Profile Levels
@@ -200,6 +271,7 @@ Produce the final report using the structure defined in the Output Format sectio
 4. **Assuming default security groups are empty.** AWS default security groups allow all inbound traffic from the same security group and all outbound traffic. CIS 5.4 requires explicitly managing them to have zero rules.
 5. **Overlooking IMDSv2 in launch templates.** CIS 5.6 applies to both `aws_instance` and `aws_launch_template` resources. Checking only direct instance definitions misses auto-scaled instances.
 6. **Counting not-evaluable controls as passing.** If a control cannot be verified from the available IaC (e.g., contact details in CIS 1.1), mark it "Not Evaluable" rather than "Pass."
+7. **Treating Security Hub as proof of GuardDuty coverage.** Security Hub can aggregate findings, but it does not prove GuardDuty detectors, organization auto-enable, protection plans, Runtime Monitoring agents, or finding export are configured.
 
 ---
 
@@ -224,6 +296,10 @@ Produce the final report using the structure defined in the Output Format sectio
 - AWS IAM Best Practices: https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
 - AWS CloudTrail Documentation: https://docs.aws.amazon.com/awscloudtrail/latest/userguide/
 - AWS Security Hub: https://docs.aws.amazon.com/securityhub/latest/userguide/
+- Amazon GuardDuty: https://docs.aws.amazon.com/guardduty/latest/ug/what-is-guardduty.html
+- Amazon GuardDuty protection plans: https://docs.aws.amazon.com/guardduty/latest/ug/protection-plans-overview.html
+- Amazon GuardDuty finding export: https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_exportfindings.html
+- Amazon GuardDuty Runtime Monitoring: https://docs.aws.amazon.com/guardduty/latest/ug/runtime-monitoring.html
 - AWS VPC Security: https://docs.aws.amazon.com/vpc/latest/userguide/security.html
 - Terraform AWS Provider Documentation: https://registry.terraform.io/providers/hashicorp/aws/latest/docs
 
@@ -231,4 +307,5 @@ Produce the final report using the structure defined in the Output Format sectio
 
 ## Changelog
 
+- **1.0.1** -- Added GuardDuty detector, protection-plan, organization auto-enable, finding-export, Runtime Monitoring, and suppression-filter coverage evidence.
 - **1.0.0** -- Initial release. Full coverage of CIS Amazon Web Services Foundations Benchmark v3.0.0 sections 1 through 5 (62 recommendations).
