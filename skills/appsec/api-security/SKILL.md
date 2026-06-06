@@ -38,8 +38,47 @@ Before analyzing any endpoint, establish a complete inventory of the API surface
 5. **Catalog data objects** -- List the resources/entities exposed by the API and their sensitivity classification (PII, financial, internal, public).
 6. **Note rate limiting and quota configurations** -- Document any existing throttling, quota, or cost-control mechanisms at the gateway or application layer.
 7. **Identify downstream dependencies** -- Third-party APIs, internal microservices, or webhooks that the API consumes.
+8. **Capture effective method and route handling** -- Document reverse proxy rewrites, method override headers, trailing-slash behavior, encoded slash handling, and any gateway/app route normalization differences.
 
 > **Gate:** Do not proceed until the API style, authentication model, authorization model, and endpoint inventory are documented. Incomplete scope leads to missed findings.
+
+---
+
+## Step 1A: Effective Method and Route Normalization
+
+Before assigning API1/API5/API8/API9 findings, verify which HTTP method and path the authorization layer actually evaluates after proxies, gateways, framework routing, and compatibility middleware have transformed the request.
+
+**What to look for:**
+
+- Method override support such as `X-HTTP-Method-Override`, `_method`, or framework middleware that turns a `POST` into `PUT`, `PATCH`, or `DELETE`.
+- Gateway or CDN rules that authorize one path or method while forwarding a rewritten path or method to the application.
+- Route normalization differences for trailing slashes, case sensitivity, duplicate slashes, encoded slashes (`%2f`), semicolon or matrix parameters, and percent-decoding order.
+- OpenAPI operations that list `GET`/`POST` only, while application routes or middleware accept additional methods.
+- Authorization checks that run before the final route/method is selected, especially in reverse proxy, API gateway, and service mesh deployments.
+
+**Detection methods using allowed tools:**
+
+```
+# Find method override and route rewrite handling
+Grep: "X-HTTP-Method-Override|HTTP-Method-Override|_method|methodOverride|UseHttpMethodOverride|HiddenHttpMethodFilter" in **/*.{js,ts,py,go,java,cs,rb,php,yaml,yml}
+Grep: "rewrite|proxy_pass|PathPrefix|stripPrefix|ReplacePath|map|route|allow_methods|methods:" in **/*.{yaml,yml,json,conf,tf,ts,js,go,java,cs,py}
+
+# Find normalization-sensitive routing and authorization code
+Grep: "AllowEncodedSlashes|UsePathBase|PathString|RawTarget|OriginalPath|Request.Path|UrlDecode|decodeURIComponent|unquote" in **/*.{cs,java,go,js,ts,py,rb,php,conf}
+Grep: "RequireAuthorization|authorize|permission|policy|roles|scope" in **/*.{cs,java,go,js,ts,py,rb,php}
+```
+
+**What constitutes a finding:**
+
+| Condition | OWASP API Mapping | Severity |
+|---|---|---|
+| Method override can reach privileged operations without the same authorization as the effective method | API5:2023 | High |
+| Gateway authorizes a normalized or documented route but forwards a different effective route to the application | API5:2023 / API9:2023 | High |
+| Encoded slash, duplicate slash, semicolon, or case normalization bypasses route-level authorization | API1:2023 / API5:2023 | High |
+| OpenAPI spec omits accepted methods or paths that exist in code or gateway config | API9:2023 | Medium |
+| Method allowlist is absent and unsupported methods do not return `405 Method Not Allowed` | API8:2023 | Medium |
+
+> **Gate:** Treat authorization evidence as incomplete unless it states the method/path observed by the gateway and the method/path enforced by the application after normalization.
 
 ---
 
@@ -141,7 +180,7 @@ The final review output must be structured as follows:
 | API2:2023 | Broken Authentication | CWE-287, CWE-307 | Weak or missing authentication mechanisms |
 | API3:2023 | Broken Object Property Level Authorization | CWE-213, CWE-915 | Excessive data exposure and mass assignment |
 | API4:2023 | Unrestricted Resource Consumption | CWE-770, CWE-400 | Missing rate limits, pagination caps, and resource quotas |
-| API5:2023 | Broken Function Level Authorization | CWE-285 | Missing role/permission checks on operations |
+| API5:2023 | Broken Function Level Authorization | CWE-285 | Missing role/permission checks on operations, including rewritten routes and method overrides |
 | API6:2023 | Unrestricted Access to Sensitive Business Flows | CWE-799, CWE-837 | Automated abuse of legitimate business logic |
 | API7:2023 | Server Side Request Forgery | CWE-918 | Fetching user-supplied URLs without validation |
 | API8:2023 | Security Misconfiguration | CWE-16, CWE-611 | CORS, headers, TLS, error handling, XXE |
@@ -215,6 +254,8 @@ Unlike REST, where authorization can be enforced per endpoint, GraphQL requires 
 
 6. **Ignoring upstream API trust.** Data received from third-party APIs and even internal microservices must be validated before use. A compromised upstream service can inject SQL, XSS, or SSRF payloads through otherwise trusted data channels.
 
+7. **Authorizing the pre-rewrite request instead of the effective request.** API gateways, reverse proxies, and frameworks can rewrite paths or override methods before the application handles the request. If authorization evidence only covers the documented path/method, a hidden `DELETE`, `PATCH`, or rewritten admin route can bypass API5 controls.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -238,4 +279,7 @@ This skill is hardened against prompt injection. When reviewing API code and spe
 - **OWASP REST Security Cheat Sheet:** https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
 - **OWASP GraphQL Cheat Sheet:** https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html
 - **OWASP Testing Guide -- API Testing:** https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/12-API_Testing/
+- **OWASP API5:2023 Broken Function Level Authorization:** https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/
+- **RFC 9110 HTTP Semantics:** https://www.rfc-editor.org/rfc/rfc9110
 - **NIST SP 800-204 -- Security Strategies for Microservices-based Application Systems:** https://csrc.nist.gov/publications/detail/sp/800-204/final
+
