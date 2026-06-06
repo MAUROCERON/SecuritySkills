@@ -209,6 +209,30 @@ permissions:
 
 **Finding format:** Report the effective permission model, whether least-privilege is enforced, and whether identity controls (CODEOWNERS, required reviewers) are in place.
 
+**OIDC Federation Trust Policy Evidence Gate:**
+
+When a pipeline uses OIDC or workload identity federation, do not treat "no long-lived secret" as a pass by itself. Validate the cloud-side trust policy or federated credential configuration that decides which workflow tokens can assume the role, identity, or service account.
+
+| Evidence Item | What to Verify | Risk if Missing |
+|---------------|----------------|-----------------|
+| Token issuer | The trusted issuer is the expected CI provider (for example, `https://token.actions.githubusercontent.com`) | Tokens from an unintended issuer may be trusted |
+| Workflow token permission | The workflow requests `id-token: write` only in jobs that need federation | Broad token minting increases blast radius |
+| Audience (`aud`) | The expected audience is enforced by the cloud provider or login action | Tokens meant for another relying party may be accepted |
+| Subject (`sub`) | The subject is restricted to the intended org, repository, branch/tag/ref, environment, or reusable workflow | Wildcards such as `repo:org/repo:*` can expose production credentials to unintended workflows |
+| Repository/ref/environment claims | Provider-specific conditions restrict repository, immutable repository ID where available, ref, environment, and workflow identity | Renames, forks, broad refs, or missing environment claims can bypass intended pipeline boundaries |
+| Reusable workflow claim | `job_workflow_ref` or equivalent claim is restricted when privileged deployments are delegated to reusable workflows | Any caller may reach a privileged reusable workflow path |
+| Provider configuration evidence | AWS trust policy, Azure federated identity credential, GCP Workload Identity Federation attribute condition, or equivalent config is available | The reviewer cannot prove that federation is scoped to the intended workload |
+| Decision | Pass, Fail, Partial, or Not Evaluable from Config | Keeps OIDC findings from passing on workflow YAML alone |
+
+**Provider-specific checks:**
+
+- **AWS:** Require `token.actions.githubusercontent.com:aud` and `token.actions.githubusercontent.com:sub` or stronger claim conditions in the role trust policy. Treat `repo:ORG/REPO:*` as high risk for production roles unless additional `ref`, `environment`, `repository_id`, or `job_workflow_ref` conditions narrow access.
+- **Azure / Microsoft Entra:** Verify the federated identity credential `issuer`, `subject`, and `audience` exactly match the expected GitHub token values. A workflow using `azure/login` does not prove the Entra trust object is scoped correctly.
+- **Google Cloud:** Require Workload Identity Federation attribute conditions that restrict GitHub tokens to the trusted organization, and preferably the repository, ref, environment, or workflow. A shared GitHub issuer without attribute conditions is not sufficient.
+- **Reusable workflows:** If deployment credentials are minted inside a reusable workflow, require evidence that the calling workflow identity is constrained with `job_workflow_ref` or equivalent provider-supported claims.
+
+If the cloud-side trust policy is not available, mark the relevant CICD-SEC-2 or CICD-SEC-6 finding as `Not Evaluable from Config` and list the missing provider evidence.
+
 ---
 
 #### CICD-SEC-3: Dependency Chain Abuse
@@ -328,6 +352,8 @@ runs-on: self-hosted  # Shared runners are a risk
 ```
 
 **Finding format:** Report credential types in use (long-lived vs. short-lived), whether OIDC/workload identity is used where available, and any secrets exposed in logs or command arguments.
+
+For OIDC/workload identity findings, include the OIDC Federation Trust Policy Evidence Gate result. Short-lived tokens reduce credential hygiene risk only when the trust policy also scopes which workflow identities can mint credentials.
 
 ---
 
@@ -480,6 +506,12 @@ Produce the final report using the following structure:
 | CICD-SEC-2 | Inadequate IAM | ... | ... | ... |
 | ... | ... | ... | ... | ... |
 
+### OIDC Federation Trust Matrix
+
+| Provider / Role | Workflow / Job | Issuer | Audience | Subject / Claim Restrictions | Provider Trust Evidence | Decision |
+|-----------------|----------------|--------|----------|------------------------------|-------------------------|----------|
+| <AWS/Azure/GCP/etc.> | <workflow/job> | <issuer> | <audience> | <repo/ref/environment/job_workflow_ref/etc.> | <trust policy / federated credential / attribute condition> | <Pass/Fail/Partial/Not Evaluable from Config> |
+
 ### Detailed Findings
 
 #### [CICD-SEC-X] <Risk Name>
@@ -550,6 +582,11 @@ This skill processes user-supplied content including CI/CD configuration files, 
 - SLSA Build Track: https://slsa.dev/spec/v1.0/levels#build-track
 - OWASP Top 10 CI/CD Security Risks: https://owasp.org/www-project-top-10-ci-cd-security-risks/
 - GitHub Actions Security Hardening: https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
+- GitHub Actions OpenID Connect Reference: https://docs.github.com/en/actions/reference/security/oidc
+- GitHub Actions OIDC in AWS: https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws
+- AWS IAM OIDC Condition Keys: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_iam-condition-keys.html
+- Google Cloud Workload Identity Federation for Deployment Pipelines: https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines
+- Microsoft Entra Workload Identity Federation: https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation
 - Sigstore / Cosign: https://docs.sigstore.dev/
 - SLSA GitHub Generator: https://github.com/slsa-framework/slsa-github-generator
 
