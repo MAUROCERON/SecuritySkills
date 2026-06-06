@@ -173,6 +173,71 @@ Remediation: Use the framework's built-in session management (e.g., `HttpSession
 - [ ] Brute-force protections (rate limiting, account lockout, CAPTCHA) are in place for login.
 - [ ] Password storage uses a memory-hard hash (bcrypt, scrypt, or Argon2id).
 
+### 3.4 JWT/JOSE Token Validation
+
+JWTs are often used as authentication, authorization, session, API, and service-to-service tokens. Treat a JWT library call as a security boundary only after verifying both the cryptographic validation and the claim-validation rules used by the application.
+
+**Controls to verify:**
+
+- Signature verification happens before any JWT claim is trusted for authentication, authorization, tenant selection, account lookup, or role assignment.
+- Accepted algorithms are explicitly pinned per issuer and key. Reject `none`, and do not mix symmetric (`HS*`) and asymmetric (`RS*`, `ES*`, `EdDSA`) algorithms for the same verifier/key selection path.
+- Claims are validated for the token type and trust context: `iss`, `aud`, `exp`, `nbf`, and `iat`. For OpenID Connect ID tokens, validate `nonce` when it was sent in the authentication request.
+- The key source is trusted. Do not fetch `jku` or `x5u` from arbitrary token headers; use configured or allowlisted JWKS endpoints for trusted issuers.
+- `kid` is validated or sanitized before database, filesystem, cache, or LDAP lookup. Do not concatenate raw `kid` values into paths or queries.
+- ID tokens, access tokens, refresh tokens, session JWTs, and service tokens have mutually exclusive validation rules so one token type cannot be replayed in another context.
+
+**Vulnerable patterns by language:**
+
+**JavaScript -- Unverified JWT Claims**
+```javascript
+// VULNERABLE: decoded claims are trusted without verification
+app.get("/admin", (req, res) => {
+  const raw = req.headers.authorization?.replace("Bearer ", "");
+  const claims = jwt.decode(raw);
+
+  if (claims.role === "admin") {
+    return res.json({ secret: process.env.ADMIN_DATA });
+  }
+
+  res.status(403).end();
+});
+```
+Remediation: Use `jwt.verify()` or framework middleware that validates signature, issuer, audience, expiry, and allowed algorithms before exposing claims to route handlers.
+
+**JavaScript -- Attacker-Controlled Key Selection**
+```javascript
+// VULNERABLE: token header controls remote key fetch and local key lookup
+jwt.verify(token, getKeyFromHeader, { algorithms: ["HS256", "RS256"] });
+
+function getKeyFromHeader(header, callback) {
+  if (header.jku) {
+    return fetch(header.jku)
+      .then((response) => response.json())
+      .then((jwks) => callback(null, jwks.keys[0]));
+  }
+
+  return fs.readFile(`/keys/${header.kid}.pem`, "utf8", callback);
+}
+```
+Remediation: Resolve keys from trusted issuer configuration only, allowlist JWKS URLs, pin algorithms per issuer/key, and validate `kid` before lookup.
+
+**Python -- Verification Disabled**
+```python
+# VULNERABLE: claims are later trusted after signature verification is disabled
+claims = jwt.decode(token, options={"verify_signature": False})
+user = db.users.find_one({"email": claims["email"]})
+```
+Remediation: Decode with a trusted key and explicit options such as expected issuer, audience, and algorithms before using claims in trust decisions.
+
+**Review checklist:**
+
+- [ ] No code path uses `jwt.decode`, `verify_signature: false`, or equivalent unverified parsing for a trust decision.
+- [ ] Token validation pins algorithms and does not allow algorithm confusion between HMAC and asymmetric algorithms.
+- [ ] `iss`, `aud`, expiry, not-before, and issued-at claims are checked according to token type.
+- [ ] OIDC ID token validation includes nonce validation where applicable.
+- [ ] `jku`, `x5u`, `jwk`, `kid`, and similar JOSE header values cannot redirect key lookup to attacker-controlled network or filesystem locations.
+- [ ] Multi-issuer or multi-tenant token validation uses issuer-specific JWKS, audiences, algorithms, and token-type rules.
+
 ---
 
 ## Step 4: Authorization Review
