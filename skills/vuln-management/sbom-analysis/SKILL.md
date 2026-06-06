@@ -48,6 +48,8 @@ Before starting, collect or confirm:
 - [ ] **SBOM format and version:** CycloneDX 1.5, SPDX 2.3, or other (identify version explicitly)
 - [ ] **VEX document(s):** Associated VEX statements, if available (CSAF 2.0 format, CycloneDX VEX, or OpenVEX)
 - [ ] **Software identity:** Name, version, and vendor of the software the SBOM describes
+- [ ] **Released artifact identity:** Package filename, container image digest, binary checksum, deployment artifact, or commit/release tag the SBOM is meant to describe
+- [ ] **SBOM generation context:** Tool name/version, source revision, build run, build timestamp, and declared scope (source, build, runtime, container, or deployed artifact)
 - [ ] **Intended use context:** Is this SBOM for procurement evaluation, compliance audit, incident response, or continuous monitoring?
 - [ ] **Compliance requirements:** Applicable mandates (EO 14028 for US federal suppliers, EU Cyber Resilience Act, FDA premarket guidance for medical devices)
 - [ ] **License policy:** Organization's approved/prohibited license list, if applicable
@@ -89,7 +91,51 @@ SBOM Format Assessment:
 - File Size:           [Size]
 ```
 
-### Step 2: NTIA Minimum Elements Completeness Check
+### Step 2: Bind SBOM to Released Artifact and Generation Scope
+
+Before scoring NTIA completeness, verify that the SBOM is actually bound to the released artifact or deployment image being assessed. A structurally valid SBOM that was generated from the wrong source revision, a different container digest, or only a manifest file is not reliable for procurement, incident response, or vulnerability triage.
+
+**Framework mapping:** CycloneDX 1.5 `metadata.component`, `metadata.tools`, `metadata.timestamp`, `component.hashes`, `formulation`; SPDX 2.3 `DocumentName`, `DocumentNamespace`, `PackageChecksum`, `ExternalRef`; SLSA/in-toto provenance concepts
+
+**What to look for:**
+
+```
+SBOM-BIND-01: SBOM has no released artifact identity (no package filename, image digest, binary hash, or release tag)
+SBOM-BIND-02: SBOM timestamp predates the release/build being assessed without documented regeneration
+SBOM-BIND-03: SBOM generated only from source manifests but used as if it described the built/runtime artifact
+SBOM-BIND-04: Container image SBOM omits base image, OS packages, or layered runtime components
+SBOM-BIND-05: Build, dev, test, and runtime dependency scopes are mixed without labels or compositions
+SBOM-BIND-06: Component identity lacks strong locator evidence (purl/CPE/SPDXID plus checksum where available)
+SBOM-BIND-07: No generator/tool evidence or tool version, making repeatability and parser quirks unevaluable
+SBOM-BIND-08: No source revision, CI run, release tag, provenance attestation, or signer to connect SBOM to the build
+SBOM-BIND-09: VEX document product/version does not match the SBOM subject, release version, or artifact digest
+SBOM-BIND-10: Multiple SBOMs exist for one product but no serial number, namespace, or relationship explains their scope
+```
+
+```
+Artifact Binding Assessment:
+- Subject artifact:       [package/image/binary/release tag]
+- Artifact digest/hash:   [sha256/image digest/checksum | Missing]
+- Source revision:        [commit/tag | Missing]
+- Build/run evidence:     [CI run/provenance attestation/signer | Missing]
+- SBOM generator:         [tool + version | Missing]
+- Declared scope:         [source/build/runtime/container/deployed | Ambiguous]
+- VEX subject match:      [Matches | Mismatch | No VEX]
+- Binding confidence:     [Strong | Partial | Weak | Not Bound]
+```
+
+**Binding confidence guidance:**
+
+| Rating | Criteria | Risk |
+|---|---|---|
+| **Strong** | Artifact digest or immutable image reference, source revision, generator, timestamp, and scope all align | SBOM can support incident response and procurement decisions |
+| **Partial** | Product/version and timestamp align, but digest/provenance or scope is incomplete | Use with caution; request stronger release evidence |
+| **Weak** | SBOM is valid but only tied to a name/version or source manifest | Vulnerability and VEX conclusions may be wrong for the shipped artifact |
+| **Not Bound** | Subject artifact cannot be identified or conflicts with supplied release/VEX data | Treat as unsuitable for assurance decisions |
+
+---
+
+### Step 3: NTIA Minimum Elements Completeness Check
 
 Evaluate the SBOM against all seven NTIA "minimum elements for an SBOM" as defined in the July 2021 NTIA publication "The Minimum Elements for a Software Bill of Materials."
 
@@ -133,7 +179,7 @@ NTIA Completeness Assessment:
 | **Partial** | 5-6 elements present for majority of components; significant gaps in supplier or dependency data |
 | **Incomplete** | Fewer than 5 elements consistently present; SBOM not suitable for compliance or risk assessment |
 
-### Step 3: VEX Status Interpretation
+### Step 4: VEX Status Interpretation
 
 If VEX (Vulnerability Exploitability eXchange) documents are provided, interpret the status for each vulnerability-product pair.
 
@@ -170,7 +216,7 @@ VEX Assessment:
 - Under Investigation: [N] (monitor for updates)
 ```
 
-### Step 4: Transitive Dependency Analysis
+### Step 5: Transitive Dependency Analysis
 
 Analyze the dependency tree to identify risk concentration in transitive (indirect) dependencies.
 
@@ -203,7 +249,7 @@ Transitive Dependency Analysis:
 - Stale Dependencies:       [N] components with no update in >= 18 months
 ```
 
-### Step 5: License Conflict Detection
+### Step 6: License Conflict Detection
 
 Analyze component licenses for conflicts, compliance risks, and policy violations.
 
@@ -245,8 +291,8 @@ Classify the overall SBOM analysis into one of the following states:
 
 | Classification | Definition | Criteria |
 |---|---|---|
-| **Critical Supply Chain Risk** | SBOM reveals high-risk supply chain exposure | Known exploited CVEs in dependencies, incomplete SBOM with missing critical elements, or license conflicts blocking distribution |
-| **Elevated Risk** | SBOM has notable gaps or concerning findings | NTIA completeness < 90%, multiple stale transitive dependencies, or VEX "Under Investigation" for critical components |
+| **Critical Supply Chain Risk** | SBOM reveals high-risk supply chain exposure | Known exploited CVEs in dependencies, unbound SBOM used for assurance decisions, incomplete SBOM with missing critical elements, or license conflicts blocking distribution |
+| **Elevated Risk** | SBOM has notable gaps or concerning findings | Weak/partial artifact binding, NTIA completeness < 90%, multiple stale transitive dependencies, or VEX "Under Investigation" for critical components |
 | **Acceptable** | SBOM meets minimum requirements with minor gaps | NTIA completeness >= 90%, no critical/high CVEs in dependencies, minor license issues documented |
 | **Strong** | SBOM is comprehensive and low-risk | NTIA 100% complete, all VEX statuses resolved, no critical dependency risks, clean license posture |
 
@@ -278,6 +324,20 @@ conflicts), and overall classification.]
 | Total Components | [N] (direct: [N], transitive: [N]) |
 | SBOM Author | [Author name] |
 | SBOM Timestamp | [ISO 8601] |
+
+### Artifact Binding and Provenance
+
+| Evidence | Status | Details |
+|---|---|---|
+| Subject Artifact | [Pass/Fail/Partial] | [Package/image/binary/release tag] |
+| Artifact Digest / Hash | [Pass/Fail/Partial] | [sha256/image digest/checksum] |
+| Source Revision | [Pass/Fail/Partial] | [Commit/tag] |
+| Build / CI Evidence | [Pass/Fail/Partial] | [Run URL, provenance attestation, signer] |
+| SBOM Generator | [Pass/Fail/Partial] | [Tool and version] |
+| Declared Scope | [Pass/Fail/Partial] | [Source/build/runtime/container/deployed] |
+| VEX Subject Match | [Pass/Fail/N/A] | [Product/version/digest alignment] |
+
+**Binding Confidence:** [Strong / Partial / Weak / Not Bound]
 
 ### NTIA Minimum Elements Compliance
 
@@ -337,6 +397,8 @@ conflicts), and overall classification.]
 - CycloneDX 1.5 Specification: https://cyclonedx.org/docs/1.5/
 - SPDX 2.3 Specification: https://spdx.github.io/spdx-spec/v2.3/
 - VEX (CSAF): https://docs.oasis-open.org/csaf/csaf/v2.0/csaf-v2.0.html
+- SLSA Provenance: https://slsa.dev/spec/v1.0/provenance
+- in-toto Attestation Framework: https://github.com/in-toto/attestation
 - Vendor advisory: [URL if applicable]
 ```
 
@@ -373,13 +435,15 @@ Published by NTIA in July 2021 as part of Executive Order 14028 implementation. 
 
 1. **Confusing SBOM presence with SBOM completeness.** Receiving an SBOM file does not mean it contains useful data. Many auto-generated SBOMs are missing supplier names, dependency relationships, or unique identifiers (purls). Always validate against the NTIA seven minimum elements before relying on the SBOM for security decisions.
 
-2. **Ignoring transitive dependencies.** Direct dependencies are typically well-managed, but transitive dependencies (dependencies of dependencies) account for the majority of supply chain vulnerabilities. The xz-utils backdoor (CVE-2024-3094) and Log4Shell (CVE-2021-44228) both demonstrated how deeply nested dependencies create organization-wide exposure. Analyze the full dependency tree, not just the top level.
+2. **Accepting an unbound SBOM as release evidence.** An SBOM generated from source manifests, a local workspace, or a previous build may not describe the binary, container image, or deployment artifact actually shipped. Always require artifact digest, release tag, source revision, build evidence, and declared scope before treating the SBOM as authoritative.
 
-3. **Treating VEX "Not Affected" as automatic clearance.** A VEX "Not Affected" status is only as trustworthy as its justification. "Component not present" is verifiable against the SBOM; "vulnerable code not in execute path" requires code-level analysis that should be validated independently for critical systems. Always review the justification category and assess its credibility.
+3. **Ignoring transitive dependencies.** Direct dependencies are typically well-managed, but transitive dependencies (dependencies of dependencies) account for the majority of supply chain vulnerabilities. The xz-utils backdoor (CVE-2024-3094) and Log4Shell (CVE-2021-44228) both demonstrated how deeply nested dependencies create organization-wide exposure. Analyze the full dependency tree, not just the top level.
 
-4. **Overlooking license implications in SaaS deployments.** AGPL-3.0 triggers copyleft obligations for network use (SaaS), unlike GPL which only triggers on distribution. Organizations running AGPL-licensed components in SaaS products may have unrecognized compliance obligations. Always flag AGPL components regardless of distribution model.
+4. **Treating VEX "Not Affected" as automatic clearance.** A VEX "Not Affected" status is only as trustworthy as its justification. "Component not present" is verifiable against the SBOM; "vulnerable code not in execute path" requires code-level analysis that should be validated independently for critical systems. Always review the justification category and assess its credibility.
 
-5. **Failing to track SBOM freshness.** An SBOM is a point-in-time snapshot. Software composition changes with every dependency update, build, or deployment. SBOMs older than the most recent build/release are potentially inaccurate. Check the SBOM timestamp against the software's actual release date and flag stale SBOMs.
+5. **Overlooking license implications in SaaS deployments.** AGPL-3.0 triggers copyleft obligations for network use (SaaS), unlike GPL which only triggers on distribution. Organizations running AGPL-licensed components in SaaS products may have unrecognized compliance obligations. Always flag AGPL components regardless of distribution model.
+
+6. **Failing to track SBOM freshness.** An SBOM is a point-in-time snapshot. Software composition changes with every dependency update, build, or deployment. SBOMs older than the most recent build/release are potentially inaccurate. Check the SBOM timestamp against the software's actual release date and flag stale SBOMs.
 
 ---
 
@@ -404,6 +468,8 @@ Published by NTIA in July 2021 as part of Executive Order 14028 implementation. 
 - CSAF 2.0 (OASIS): https://docs.oasis-open.org/csaf/csaf/v2.0/csaf-v2.0.html
 - CISA VEX Minimum Requirements: https://www.cisa.gov/sites/default/files/2023-04/minimum-requirements-for-vex-508c.pdf
 - OpenVEX Specification: https://github.com/openvex/spec
+- SLSA Provenance: https://slsa.dev/spec/v1.0/provenance
+- in-toto Attestation Framework: https://github.com/in-toto/attestation
 - Executive Order 14028: https://www.whitehouse.gov/briefing-room/presidential-actions/2021/05/12/executive-order-on-improving-the-nations-cybersecurity/
 - EU Cyber Resilience Act: https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act
 - OSV (Open Source Vulnerability Database): https://osv.dev/
