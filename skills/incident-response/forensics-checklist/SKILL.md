@@ -60,6 +60,9 @@ Before beginning evidence collection, gather or confirm:
 - [ ] **Evidence storage** -- Write-protected storage media available (forensic drives, NAS, S3 bucket with object lock).
 - [ ] **Forensic tools available** -- Memory capture (WinPmem, LiME, DumpIt), disk imaging (dc3dd, FTK Imager, ewfacquire), network capture (tcpdump, Wireshark).
 - [ ] **Cloud provider access** -- IAM permissions for snapshot creation, log export, and API access (if cloud environment).
+- [ ] **Cloud evidence integrity controls** -- CloudTrail/Audit Logs validation, immutable/WORM retention, separate log archive account or project, data-event coverage, and deployed artifact hash evidence.
+- [ ] **Mobile/BYOD scope** -- Device ownership, legal authority/consent, lock state, MDM enrollment, network state, cloud backup availability, and remote-wipe risk.
+- [ ] **Preservation versus triage outputs** -- Which commands create preserved raw artifacts and which commands are only triage views.
 - [ ] **Time synchronization** -- NTP configuration of affected systems; UTC timestamps preferred.
 - [ ] **Encryption status** -- BitLocker, LUKS, FileVault, or cloud-managed encryption on affected volumes.
 
@@ -115,7 +118,24 @@ RFC 3227 Section 2.1 defines the order of volatility -- evidence sources ranked 
 | 6 | **Physical configuration, network topology** | Stable | Changes with infrastructure modifications | Network diagrams, switch/router configs, CMDB |
 | 7 | **Archival media** | Long-term | Stable unless damaged or degaussed | Tape backups, offline backups, cold storage |
 
-### Step 3: Volatile Data Capture
+### Step 3: Containment Versus Collection Decision
+
+Before collecting volatile data, decide whether immediate containment is needed
+to stop active harm. Volatile-first collection is preferred, but ransomware,
+active exfiltration, destructive activity, or remote wipe risk can justify
+isolation before full acquisition.
+
+Record the decision:
+
+- Containment action taken, exact UTC time, actor, and authorization.
+- Evidence changed by containment, such as network connections, remote sessions,
+  cloud access paths, mobile network state, or process state.
+- Evidence preserved before containment and evidence made unavailable by
+  containment.
+- Compensating evidence, such as network telemetry, EDR timeline, cloud audit
+  events, or MDM logs.
+
+### Step 4: Volatile Data Capture
 
 Capture volatile data BEFORE any containment action that would alter system state (network isolation may be acceptable; reboot, shutdown, or reimaging destroys volatile evidence).
 
@@ -194,8 +214,13 @@ listdlls.exe (Windows, Sysinternals) / cat /proc/[pid]/maps (Linux)
 # Logged-in users
 query user (Windows) / w (Linux)
 
-# Recent logon events
-wevtutil qe Security /q:"*[System[EventID=4624]]" /c:50 /f:text (Windows)
+# Recent logon events for triage view only
+wevtutil qe Security /q:"*[System[EventID=4624]]" /c:50 /f:text (Windows, triage)
+
+# Preserve raw Windows event log artifact before relying on rendered text
+wevtutil epl Security E:\evidence\[hostname]_Security_[YYYYMMDD].evtx (Windows, preserved artifact)
+certutil -hashfile E:\evidence\[hostname]_Security_[YYYYMMDD].evtx SHA256
+
 last -50 (Linux)
 
 # Scheduled tasks / cron jobs
@@ -217,7 +242,7 @@ ls -latr /tmp /var/tmp /dev/shm
 # Linux: Identify swap partitions with 'swapon --show' and image them
 ```
 
-### Step 4: Non-Volatile Data Capture (Disk Imaging)
+### Step 5: Non-Volatile Data Capture (Disk Imaging)
 
 Create a forensically sound disk image -- a bit-for-bit copy that preserves all data including deleted files, slack space, and unallocated areas.
 
@@ -263,7 +288,13 @@ Evidence Integrity Record:
 - Imaging End Time:     [YYYY-MM-DD HH:MM UTC]
 ```
 
-### Step 5: Log Preservation
+If the incident scope is serverless, SaaS, managed database, mobile-only, or
+another service-domain case where no host disk exists, mark disk collection as
+`N/A with compensating evidence`. Preserve service logs, deployed artifact
+hashes, IAM/config snapshots, provider audit logs, and immutable storage
+evidence instead of forcing a false disk-imaging gap.
+
+### Step 6: Log Preservation
 
 Preserve logs before rotation policies destroy them. Export and hash logs from each source.
 
@@ -283,13 +314,26 @@ Preserve logs before rotation policies destroy them. Export and hash logs from e
 
 **Log export procedure:**
 ```
-1. Export raw logs to write-protected storage
+1. Export raw logs or native containers to write-protected storage
 2. Compute SHA-256 hash of each exported log file
 3. Document: source, time range, export method, hash value
 4. Store alongside disk and memory evidence in the case folder
 ```
 
-### Step 6: Cloud Forensics
+Prefer native or raw log artifacts for preservation:
+
+| Platform | Preserved Artifact | Triage View Only |
+|----------|-------------------|------------------|
+| Windows | `.evtx` exported with `wevtutil epl` | `wevtutil qe ... /f:text` |
+| Linux | copied log file/journal export with hash | `tail`, `grep`, rendered snippets |
+| CloudTrail | S3 log objects plus digest files | `lookup-events` result only |
+| SIEM | vendor export with event IDs and metadata | dashboard screenshot only |
+
+Rendered text, dashboard screenshots, and filtered queries are useful for
+triage, but they should not be the only preserved artifact when a raw or native
+container export is available.
+
+### Step 7: Cloud Forensics
 
 Cloud environments require different acquisition techniques because direct hardware access is not available.
 
@@ -339,6 +383,46 @@ gcloud logging read 'timestamp>="YYYY-MM-DDT00:00:00Z" AND timestamp<="YYYY-MM-D
 - Multi-region deployments require evidence collection across all regions
 - Serverless environments (Lambda, Cloud Functions) produce only invocation logs -- there is no disk to image
 
+#### Cloud Evidence Integrity Gate
+
+For cloud-native, serverless, managed service, and SaaS investigations, verify
+that service-domain evidence has integrity, immutability, and provenance:
+
+| Evidence Control | What to Verify | Example Evidence |
+|------------------|----------------|------------------|
+| Log validation | Provider log integrity validation enabled and digest files retained | CloudTrail log file validation and digest chain |
+| Immutable retention | WORM/Object Lock or equivalent retention configured | S3 Object Lock compliance mode, legal hold, retention date |
+| Separate archive boundary | Logs stored outside the affected account/project/subscription where possible | security log archive account, restricted bucket policy |
+| Data-event coverage | Data-plane events were enabled before incident scope | S3 object-level events, Lambda invoke events, audit data access logs |
+| Artifact provenance | Deployed code/image/config can be tied to digest and release evidence | Lambda zip hash, container image digest, IaC state/export |
+| Access trail | Break-glass, support, and responder access was logged | IAM role session logs, access approvals, ticket ID |
+
+If any control is missing, report the evidence confidence as `Low` or
+`Not Evaluable` instead of simply marking logs as collected.
+
+### Step 8: Mobile and BYOD Evidence Scope
+
+Mobile devices require a separate preservation decision path, especially when a
+device was used for MFA approval, push notifications, messaging, or cloud
+account access.
+
+Record:
+
+- Device owner and legal authority/consent, especially for BYOD or personal
+  devices.
+- Device state: powered on/off, locked/unlocked, network-connected, battery
+  level, remote-wipe risk, and whether isolation was performed.
+- MDM evidence: device identifiers, compliance state, installed apps, profiles,
+  jailbreak/root indicators, last check-in, and remote command history.
+- Cloud and service evidence: backup metadata, push approval logs, identity
+  provider events, messaging app export availability, and provider audit logs.
+- Acquisition decision: logical, file-system, cloud-backup, MDM-only, or not
+  authorized; include tool/version and hash where artifacts are exported.
+
+Do not power on/off or unlock a device without examiner guidance. Record why a
+mobile device is out of scope or `N/A` when only cloud-side MFA/provider logs are
+legally collectable.
+
 ---
 
 ## 4. Findings Classification
@@ -379,11 +463,11 @@ the order of collection, and any evidence that could not be obtained.]
 | RFC 3227 Priority | Evidence Source | Collected | Notes |
 |---|---|---|---|
 | 1 | Registers/cache | [Yes/No/N/A] | [Notes] |
-| 2 | Routing/ARP/process table/memory | [Yes/No] | [Notes] |
-| 3 | Temporary file systems | [Yes/No] | [Notes] |
-| 4 | Disk | [Yes/No] | [Notes] |
-| 5 | Remote logging data | [Yes/No] | [Notes] |
-| 6 | Physical configuration | [Yes/No] | [Notes] |
+| 2 | Routing/ARP/process table/memory | [Yes/No/N/A with compensating evidence] | [Notes] |
+| 3 | Temporary file systems | [Yes/No/N/A with compensating evidence] | [Notes] |
+| 4 | Disk | [Yes/No/N/A with compensating evidence] | [Notes] |
+| 5 | Remote logging data | [Yes/No/N/A with compensating evidence] | [Notes] |
+| 6 | Physical configuration | [Yes/No/N/A with compensating evidence] | [Notes] |
 | 7 | Archival media | [Yes/No/N/A] | [Notes] |
 
 ### Chain of Custody
@@ -398,9 +482,20 @@ the order of collection, and any evidence that could not be obtained.]
 [List any evidence that could not be collected and the reason]
 
 ### Cloud Evidence (if applicable)
-| Cloud Provider | Resource | Evidence Type | Collected | Notes |
+| Cloud Provider | Resource | Evidence Type | Collected | Integrity / Immutability | Notes |
+|---|---|---|---|---|---|
+| [AWS/Azure/GCP] | [Resource ID] | [Snapshot/Logs/Config] | [Yes/No/N/A with compensating evidence] | [Digest/Object Lock/archive account/etc.] | [Notes] |
+
+### Preservation Versus Triage Outputs
+| Artifact | Preserved Evidence? | Triage View? | Hash / Provenance | Notes |
 |---|---|---|---|---|
-| [AWS/Azure/GCP] | [Resource ID] | [Snapshot/Logs/Config] | [Yes/No] | [Notes] |
+| [Security.evtx] | Yes | No | SHA-256: [hash] | Raw event log export |
+| [wevtutil text output] | No | Yes | N/A | Used only to scope preserved event ranges |
+
+### Mobile / BYOD Evidence (if applicable)
+| Device | Ownership | Lock / Network State | MDM / Cloud Evidence | Acquisition Decision | Legal Basis |
+|---|---|---|---|---|---|
+| [device id] | [corporate/BYOD/unknown] | [state] | [logs/backups/MDM] | [logical/cloud/MDM-only/N/A] | [authorization] |
 ```
 
 ---
@@ -461,6 +556,28 @@ Applying traditional forensic methods to cloud environments without adaptation l
 
 Every action on a live system modifies it -- writing memory dump files to the evidence drive changes timestamps and consumes disk space, running commands updates shell history and modifies access times. Minimize evidence contamination by writing collection output to external media (USB, network share, S3 bucket), documenting every command executed on the system, and noting the expected impact of each collection action on the evidence state.
 
+### Pitfall 6: Treating Triage Text as Preserved Evidence
+
+Rendered text output from a command or dashboard can help decide where to look,
+but it may omit original event metadata, channel context, signatures, parser
+compatibility, or provider digest links. Preserve raw or native artifacts where
+possible, then use rendered views for analysis.
+
+### Pitfall 7: Marking Serverless or SaaS Incidents as Disk Gaps
+
+Some incidents have no host disk to image. For Lambda, Cloud Functions, managed
+databases, SaaS, and similar systems, the defensible path is service-domain
+evidence: immutable logs, deployed artifact hashes, configuration snapshots,
+identity events, and provider audit trails. Record `N/A with compensating
+evidence` rather than a misleading disk-imaging failure.
+
+### Pitfall 8: Applying Desktop Forensics Assumptions to Mobile/BYOD
+
+Mobile lock state, remote wipe risk, cloud backups, MDM telemetry, and consent
+constraints can determine what evidence is legally and technically collectable.
+Avoid powering devices on/off or changing network state without documenting the
+decision and expected evidence impact.
+
 ---
 
 ## 8. Prompt Injection Safety Notice
@@ -487,3 +604,9 @@ This skill processes forensic artifacts, log files, memory dumps, and system con
 8. **ACSC Digital Forensics Guide** -- https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/publications/digital-forensics
 9. **SWGDE Best Practices for Computer Forensics** -- https://www.swgde.org/documents
 10. **AWS Security Incident Response Guide** -- https://docs.aws.amazon.com/whitepapers/latest/aws-security-incident-response-guide/
+11. **NIST SP 800-101 Rev. 1** -- Guidelines on Mobile Device Forensics -- https://csrc.nist.gov/pubs/sp/800/101/r1/final
+12. **NIST SP 800-61 Rev. 3** -- Incident Response Recommendations and Considerations for Cybersecurity Risk Management -- https://csrc.nist.gov/pubs/sp/800/61/r3/final
+13. **AWS Collect and Analyze Forensic Evidence** -- https://docs.aws.amazon.com/whitepapers/latest/aws-security-incident-response-guide/collect-analyze-forensic-evidence.html
+14. **AWS CloudTrail Log File Validation** -- https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-intro.html
+15. **Amazon S3 Object Lock** -- https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html
+16. **CISA Incident and Vulnerability Response Playbooks** -- https://www.cisa.gov/news-events/news/incident-and-vulnerability-response-playbooks
