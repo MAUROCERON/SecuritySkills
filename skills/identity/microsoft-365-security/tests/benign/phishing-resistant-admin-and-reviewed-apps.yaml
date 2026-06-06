@@ -1,0 +1,34 @@
+tenant: contoso-example
+evidence_timestamp: "2026-06-06T12:30:00Z"
+identity:
+  conditional_access_admin_mfa:
+    state: enabled
+    authentication_strength: phishing_resistant
+    included_roles:
+      - Global Administrator
+      - Exchange Administrator
+      - SharePoint Administrator
+    excluded_accounts:
+      - break-glass-1@example.invalid
+      - break-glass-2@example.invalid
+  break_glass:
+    monitored: true
+    last_test: "2026-05-15"
+    compensating_controls:
+      - long random password in sealed vault
+      - alert on sign-in
+      - quarterly test
+app_consent:
+  user_consent_setting: verified_low_risk_only
+  admin_consent_workflow: enabled
+  service_principals:
+    - display_name: HR Case System
+      publisher_verified: true
+      owner: hr-platform
+      application_permissions:
+        - User.Read.All
+      delegated_permissions: []
+      last_review: "2026-05-20"
+      business_justification: HR lifecycle automation
+      expiry_review_due: "2026-08-20"
+expected_result: pass

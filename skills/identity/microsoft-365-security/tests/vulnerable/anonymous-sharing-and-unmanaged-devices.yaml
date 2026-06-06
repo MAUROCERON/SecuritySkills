@@ -1,0 +1,29 @@
+tenant: fabrikam-example
+evidence_timestamp: "2026-06-06T12:10:00Z"
+sharepoint:
+  tenant_default_sharing: Anyone
+  default_link_type: AnonymousAccess
+  default_link_expiry_days: null
+  unmanaged_device_policy:
+    allow_full_download: true
+  sensitive_sites:
+    - site: /sites/finance
+      external_sharing: Anyone
+      sensitivity_label: null
+      guest_review: none
+teams:
+  guest_access: enabled
+  external_access:
+    allowed_domains: all
+    review_owner: null
+data_governance:
+  dlp_policy_assignment: missing
+  sensitivity_label_policy: not_assigned
+expected_findings:
+  - M365-COLLAB-01
+  - M365-COLLAB-02
+  - M365-COLLAB-03
+  - M365-COLLAB-04
+  - M365-COLLAB-05
+  - M365-COLLAB-06
+  - M365-AUDIT-05

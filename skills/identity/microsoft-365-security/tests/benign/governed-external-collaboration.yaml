@@ -1,0 +1,30 @@
+tenant: fabrikam-example
+evidence_timestamp: "2026-06-06T12:40:00Z"
+sharepoint:
+  tenant_default_sharing: ExistingExternalUsers
+  default_link_type: SpecificPeople
+  default_link_expiry_days: 30
+  unmanaged_device_policy:
+    allow_web_only_limited_access: true
+  sensitive_sites:
+    - site: /sites/customer-project-alpha
+      external_sharing: ExistingExternalUsers
+      sensitivity_label: Confidential
+      guest_review:
+        owner: project-owner
+        cadence_days: 30
+        last_completed: "2026-05-31"
+      allowed_domains:
+        - customer.example.invalid
+teams:
+  guest_access: enabled
+  external_access:
+    allowed_domains:
+      - customer.example.invalid
+    review_owner: collaboration-governance
+data_governance:
+  dlp_policy_assignment: finance-and-customer-sites
+  sensitivity_label_policy: assigned_to_all_users
+expected_result: pass
+notes:
+  - External collaboration is business-approved, domain-scoped, expiring, reviewed, and label-protected.

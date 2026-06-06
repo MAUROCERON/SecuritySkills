@@ -1,0 +1,31 @@
+tenant: wingtip-example
+evidence_timestamp: "2026-06-06T12:20:00Z"
+scope:
+  workloads:
+    - Entra ID
+    - Exchange Online
+    - SharePoint
+    - Teams
+licensing:
+  sku: unknown
+purview:
+  audit_search_available: unknown
+  audit_retention_days: unknown
+exchange:
+  mailbox_audit_enabled: unknown
+  forwarding_alert_policy: missing
+defender:
+  incidents_routed_to_siem: false
+  alert_owner: null
+secure_score:
+  score: 82
+  used_as_final_evidence: true
+expected_findings:
+  - M365-SCOPE-02
+  - M365-SCOPE-03
+  - M365-AUDIT-01
+  - M365-AUDIT-02
+  - M365-AUDIT-03
+  - M365-AUDIT-04
+not_evaluable:
+  - Purview audit retention cannot be scored without license and audit export evidence.

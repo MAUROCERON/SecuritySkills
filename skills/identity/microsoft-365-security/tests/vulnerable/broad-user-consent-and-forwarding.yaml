@@ -1,0 +1,38 @@
+tenant: contoso-example
+evidence_timestamp: "2026-06-06T12:00:00Z"
+identity:
+  conditional_access_admin_mfa:
+    state: report_only
+    excluded_groups:
+      - All service accounts
+  break_glass:
+    monitored: false
+app_consent:
+  user_consent_setting: allow_all_users
+  admin_consent_workflow: disabled
+  service_principals:
+    - display_name: Invoice PDF Viewer
+      publisher_verified: false
+      owner: unknown
+      delegated_permissions:
+        - Mail.ReadWrite
+        - Files.Read.All
+        - offline_access
+      last_review: null
+exchange:
+  automatic_external_forwarding: allowed
+  mailbox_rules:
+    - mailbox: finance@example.invalid
+      action: forward_and_delete
+      destination: attacker-mailbox@example.invalid
+      owner_ticket: null
+audit:
+  unified_audit_log_evidence: missing
+expected_findings:
+  - M365-ID-01
+  - M365-APP-01
+  - M365-APP-02
+  - M365-APP-03
+  - M365-EXO-01
+  - M365-EXO-02
+  - M365-AUDIT-01

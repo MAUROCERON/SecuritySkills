@@ -1,0 +1,28 @@
+tenant: northwind-example
+evidence_timestamp: "2026-06-06T12:50:00Z"
+licensing:
+  sku: Microsoft 365 Business Standard
+  premium_controls_unavailable:
+    - risk_based_conditional_access
+    - extended_audit_retention
+identity:
+  security_defaults: enabled
+  admin_mfa: enforced
+  legacy_auth: blocked
+exchange:
+  automatic_external_forwarding: disabled
+  mailbox_audit_enabled: true
+purview:
+  audit_search_available: true
+  audit_retention_days: standard_retention
+compensating_controls:
+  risk_signals:
+    owner: helpdesk-security
+    cadence: weekly sign-in and forwarding review
+  app_consent:
+    user_consent_setting: disabled
+    admin_review_required: true
+expected_result: not_evaluable_for_premium_only_controls
+notes:
+  - Do not fail premium-only controls solely because licensing is unavailable.
+  - Record license limitation, compensating evidence, and residual risk.
