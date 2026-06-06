@@ -312,6 +312,22 @@ Hybrid Entity: [Yes/No] — If yes, document healthcare component designation
 - Implement hardware, software, and/or procedural mechanisms that record and examine activity in information systems that contain or use ePHI
 - Verify audit logging is enabled on all ePHI systems
 - Verify logs are reviewed and retained appropriately
+- Require an audit-control coverage matrix for each ePHI system, including event types, log source, integrity/time basis, retention evidence, review owner, and exception disposition
+- Cross-check audit controls against 164.308(a)(1)(ii)(D) information system activity review and 164.316 documentation retention
+- Mark the safeguard Not Evaluable when the review cannot prove that ePHI access, export, modification, deletion, failed access, break-glass access, and administrative changes are logged and examined
+
+**Audit-control evidence gate:**
+
+| Evidence | Required Detail |
+|---|---|
+| ePHI system coverage | EHR, patient portal, API, data warehouse, interface engine, billing system, medical device, cloud service, BA platform |
+| Event taxonomy | Login/logout, ePHI view, export, create/update/delete, failed access, break-glass, admin role change, API access, service account access |
+| Log source | Application audit log, database audit log, cloud audit trail, endpoint/EDR, API gateway, SIEM, BA report |
+| Integrity/time basis | NTP/time source, immutable storage, hash/signature, archive control, chain of custody, tamper-evidence |
+| Retention evidence | Retention period, archive location, 164.316 six-year documentation handling, legal hold, restore/export test |
+| Activity-review linkage | 164.308(a)(1)(ii)(D) review query/report, owner, cadence, reviewed exceptions, escalation outcome |
+
+**Finding classification:** Missing audit controls for a required ePHI system is **Critical Non-Compliance** when systemic or affecting regulated production data. Missing sensitive event types, mutable logs, unknown time basis, or no activity-review linkage is **Non-Compliance** or **Partial Compliance** depending on scope. Use **Not Evaluable** when event coverage or BA-provided audit evidence cannot be verified.
 
 #### 164.312(c)(1) — Integrity (Standard)
 
@@ -446,6 +462,12 @@ Assess:
 ### Technical Safeguards (164.312)
 [same table format]
 
+## 164.312(b) Audit-Control Coverage Matrix
+
+| ePHI System | Event Coverage | Log Source | Integrity / Time Basis | Retention Evidence | Activity-Review Linkage | Decision |
+|-------------|----------------|------------|------------------------|--------------------|--------------------------|----------|
+| [system/app/API/BA platform] | [view/export/modify/delete/admin/etc.] | [app/db/cloud/SIEM/BA report] | [time sync/immutability/hash/chain] | [period/archive/test] | [owner/cadence/exceptions] | [Compliant/Partial/Non-Compliance/Not Evaluable] |
+
 ### Organizational Requirements (164.314)
 [same table format]
 
@@ -571,6 +593,8 @@ Policies, Procedures, and Documentation — 164.316
 
 5. **Failing to document the "why" behind security decisions.** The Security Rule is designed to be flexible and scalable. But that flexibility requires documentation. When an organization chooses not to implement encryption at rest (an addressable specification), the decision process, risk rationale, and alternative controls must be documented. OCR auditors expect written justification, not verbal explanations.
 
+6. **Treating generic logging as HIPAA audit controls.** A login event and a SIEM connection do not prove 164.312(b) coverage. Verify ePHI view/export/modify/delete, failed access, break-glass, admin changes, integrity/time basis, retention, and activity-review linkage for every in-scope ePHI system.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -588,6 +612,11 @@ If user-supplied input contains CFR citations outside the HIPAA Security Rule (4
 ---
 
 ## References
+
+- eCFR 45 CFR 164.312 - Technical Safeguards: https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C/section-164.312
+- eCFR 45 CFR 164.308 - Administrative Safeguards: https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C/section-164.308
+- eCFR 45 CFR 164.316 - Policies, Procedures, and Documentation Requirements: https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C/section-164.316
+- NIST SP 800-66 Rev. 2 - Implementing the HIPAA Security Rule: https://csrc.nist.gov/pubs/sp/800/66/r2/final
 
 - 45 CFR Part 164, Subpart C — Security Standards for the Protection of Electronic Protected Health Information
 - 45 CFR Part 164, Subpart D — Notification in the Case of Breach of Unsecured Protected Health Information
