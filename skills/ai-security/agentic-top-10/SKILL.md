@@ -326,6 +326,35 @@ In 2024, a red team exercise at a technology company (published in their securit
 5. Present approval requests with full context. Show the human reviewer the complete action chain, not just the immediate request.
 6. Rotate and limit approval sessions to combat approval fatigue. Set maximum approval counts per session.
 
+#### AG08 Approval Binding Evidence Gate
+
+Do not treat a human approval as sufficient evidence unless it is bound to the exact action that executes. A safe approval record must prove that the reviewer saw the same tool, parameters, resource target, diff, cumulative risk score, and execution window that the agent later used.
+
+**Required evidence:**
+
+| Evidence | Required fields | Risk if missing |
+|---|---|---|
+| Approval request | request ID, action ID, tool name/version, target resource, normalized parameters, requested-at time | reviewer may approve a vague or different action |
+| Action digest | hash of normalized parameters, diff or command plan, pre-state identifier, risk score, cumulative session risk | agent can mutate parameters after approval |
+| Reviewer context | reviewer identity, role, approval channel, MFA/session assurance, separation-of-duties check | compromised or conflicted approval can authorize sensitive action |
+| Execution receipt | approval ID, action digest, nonce, expiry, executed-at time, executor identity, post-state evidence | stale approvals can be replayed or reused |
+| Failure mode | fail-closed result when approval service, digest verification, or reviewer identity check is unavailable | outages can bypass human oversight |
+
+**Flag as HIGH or CRITICAL when:**
+
+- The agent can change tool parameters, destination, file diff, deployment target, or batch membership after approval.
+- A single approval covers many heterogeneous actions without per-action digests or cumulative risk scoring.
+- Approval receipts do not expire, lack a nonce, or can be replayed across sessions, environments, or resources.
+- The approval UI hides prior tool calls, downstream effects, or the complete action chain needed for informed review.
+- The same identity can request, approve, and execute a high-impact action with no separation-of-duties control.
+
+**Accept as lower risk when:**
+
+- Each sensitive action has a tamper-evident approval receipt tied to normalized parameters and a short expiry.
+- The executor verifies the receipt digest immediately before the tool call and fails closed on mismatch.
+- Batch approvals enumerate every action and resource, include cumulative risk, and require fresh approval if membership changes.
+- The output records reviewer identity, approval channel, execution receipt, post-action evidence, and residual limitations.
+
 **Framework Mapping:**
 
 - OWASP LLM Top 10 2025: LLM06 — Excessive Agency
@@ -428,6 +457,7 @@ Grep: "send_message|delegate|dispatch|publish|subscribe|queue" in **/*.{py,ts,js
 
 # Human approval gates
 Grep: "approve|confirm|human_in_the_loop|hitl|review|authorize" in **/*.{py,ts,js,yaml,yml}
+Grep: "approval_id|approval_receipt|action_digest|nonce|expires_at|reviewer|risk_score|separation_of_duties" in **/*.{py,ts,js,yaml,yml,json}
 ```
 
 ### Hands-On Assessment Tooling
@@ -493,6 +523,7 @@ Structure the final report as follows:
 - Tools registered: [count and categories]
 - Memory stores: [types]
 - Human approval gates: [present/absent, description]
+- Approval binding evidence: [per-action digest, receipt expiry, reviewer identity, replay protection]
 - Multi-agent communication: [method]
 
 ## Findings by Threat Category
@@ -513,6 +544,11 @@ Structure the final report as follows:
 |---|---|---|---|
 | AG01 | [rating] | [one-line summary] | [priority] |
 | ... | ... | ... | ... |
+
+## Human Approval Binding Evidence
+| Action class | Approval evidence reviewed | Digest bound to | Expiry/nonce | Reviewer control | Execution receipt | Residual risk |
+|---|---|---|---|---|---|---|
+| [deploy/write/delete/etc.] | [request, UI screenshot, audit log, policy] | [tool + normalized parameters + diff + target] | [present/absent] | [MFA, role, SoD] | [receipt/post-state evidence] | [remaining gap] |
 
 ## Recommendations
 1. [Highest priority recommendation]
@@ -577,6 +613,8 @@ Multi-agent systems routinely pass natural language messages between agents with
 ### 3. Implementing Human-in-the-Loop as a Checkbox
 
 An approval gate is only effective if the human reviewer has sufficient context, time, and expertise to make a meaningful decision. Systems that bombard reviewers with hundreds of low-context approval requests per day have no effective human oversight — they have an approval theatre that will be bypassed through fatigue. Design for meaningful review, not review volume.
+
+Also verify approval binding. A reviewer approving "deploy change" is not equivalent to approving a specific tool call, destination, diff, and risk score. If the agent can replay an old receipt or alter parameters after approval, the system has automation with a decorative confirmation step, not a real human control.
 
 ### 4. Ignoring the Memory Attack Surface
 
