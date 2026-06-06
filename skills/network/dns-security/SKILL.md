@@ -194,6 +194,67 @@ forwarders { 1.1.1.1; };  # Plaintext -- flag as finding
 
 ---
 
+### Step 3.5: Resolver Privacy and Log Minimization Review
+
+DNSSEC, DoT/DoH, RPZ, and protective DNS do not by themselves prove resolver privacy. For each recursive resolver and upstream forwarding path, verify whether the resolver minimizes query data sent to authoritative/upstream servers and minimizes retained client/query data in logs.
+
+#### 3.5.1 QNAME Minimization
+
+**Verify recursive resolver behavior:**
+
+- QNAME minimization is enabled for iterative resolution.
+- The resolver sends only the minimum name needed at each delegation step, rather than forwarding the full original query name to every authoritative server.
+- Exceptions are documented when interoperability problems require relaxed minimization.
+
+**Patterns to check:**
+
+```
+# Unbound
+qname-minimisation: yes
+qname-minimisation-strict: yes
+
+# BIND
+qname-minimization yes;
+```
+
+#### 3.5.2 EDNS Client Subnet (ECS)
+
+**Verify ECS exposure:**
+
+- ECS forwarding is disabled by default unless there is a documented business need such as CDN localization.
+- If ECS is enabled, client prefixes are truncated to the coarsest practical prefix, scoped to approved upstreams, and reviewed as a privacy exception.
+- ECS is not forwarded for sensitive networks, VIP/user segments, or protected resolver zones unless explicitly approved.
+
+#### 3.5.3 Query Log Minimization
+
+**Verify logging posture:**
+
+- Query logs collect only fields required for security operations, troubleshooting, or compliance.
+- Client IPs, user identifiers, and full QNAMEs are minimized, pseudonymized, aggregated, sampled, or subject to short retention when detailed logs are not required.
+- Detailed protective-DNS or threat-hunting logs have documented purpose, owner, access controls, retention period, deletion path, and incident-response justification.
+
+**Review checklist:**
+
+```
+DNS-PRIV-01: QNAME minimization disabled on recursive resolvers
+DNS-PRIV-02: Full QNAME forwarded during iterative resolution without exception evidence
+DNS-PRIV-03: EDNS Client Subnet enabled without approved purpose, upstream scope, or prefix truncation
+DNS-PRIV-04: ECS forwarded for sensitive networks or user segments without documented privacy exception
+DNS-PRIV-05: DNS query logs retain full client IP, user ID, and full QNAME longer than operationally justified
+DNS-PRIV-06: Query-log access controls, deletion path, or retention owner are missing
+DNS-PRIV-07: Protective DNS or RPZ pass result used to ignore resolver privacy posture
+DNS-PRIV-08: Encrypted DNS transport credited as privacy complete while resolver/operator logs remain unminimized
+```
+
+**Decision rules:**
+
+- Treat disabled QNAME minimization as **Medium** by default and **High** for privacy-sensitive resolver populations.
+- Treat ECS forwarding of full or overly specific client prefixes as **High** when it includes user, executive, regulated, or sensitive network segments.
+- Treat long-lived detailed query logs without purpose, retention, and access controls as **High** when they include user identifiers or full client IPs.
+- Mark resolver privacy **Not Evaluable** when configuration, upstream policy, or log-retention evidence is unavailable.
+
+---
+
 ### Step 4: Response Policy Zones (RPZ) and Protective DNS (CIS Control 9.2)
 
 CIS Control 9.2 requires the use of DNS filtering services to block access to known malicious domains. RPZ (Response Policy Zones, defined by ISC) is the standard mechanism for DNS-based filtering on recursive resolvers.
@@ -299,8 +360,8 @@ abcdef0123456789.dnscat.example.com TXT
 | Severity | Definition |
 |----------|-----------|
 | **Critical** | Broken DNSSEC chain of trust (missing DS record in parent); authoritative zones serving invalid signatures. |
-| **High** | DNSSEC validation disabled on resolvers; no DNS filtering/RPZ; unsigned public authoritative zones; DNS bypass paths around protective DNS; no DNS query logging; weak signing algorithms. |
-| **Medium** | Plaintext DNS forwarding over untrusted networks; stale RPZ feeds; undocumented NTAs; no NRD blocking; no exfiltration detection; DoH bypass not controlled. |
+| **High** | DNSSEC validation disabled on resolvers; no DNS filtering/RPZ; unsigned public authoritative zones; DNS bypass paths around protective DNS; no DNS query logging; weak signing algorithms; ECS leaks sensitive client prefixes; long-lived detailed DNS logs without controls. |
+| **Medium** | Plaintext DNS forwarding over untrusted networks; stale RPZ feeds; undocumented NTAs; no NRD blocking; no exfiltration detection; DoH bypass not controlled; QNAME minimization disabled. |
 | **Low** | Missing documentation of DNS architecture; resolver software not at latest version; cosmetic configuration issues. |
 
 ---
@@ -327,6 +388,12 @@ abcdef0123456789.dnscat.example.com TXT
 | Resolver | DNSSEC Validation | Encrypted Transport | RPZ/Filtering | Query Logging |
 |----------|-------------------|--------------------|--------------|--------------|
 | ns1      | Enabled/Disabled  | DoT/DoH/Plaintext  | Yes/No       | Yes/No       |
+
+### Resolver Privacy and Log Minimization
+
+| Resolver | QNAME Minimization | ECS Policy | Log Fields Retained | Retention / Access Controls | Exceptions | Status |
+|----------|--------------------|------------|---------------------|-----------------------------|------------|--------|
+| ns1      | Enabled/Disabled/Unknown | Disabled / Truncated / Full / Unknown | Client IP, user ID, QNAME, qtype, rcode, RPZ hit | Days, owner, access group, deletion path | CDN, threat hunting, incident response | Pass / Fail / Not Evaluable |
 
 ### Findings
 
@@ -384,6 +451,8 @@ abcdef0123456789.dnscat.example.com TXT
 
 4. **Ignoring DNS over TCP.** DNS is not UDP-only. DNS over TCP (port 53) supports large responses and is required for zone transfers. Some tunneling tools prefer TCP for reliability. Firewall rules and monitoring must cover both UDP and TCP port 53.
 
+5. **Treating encrypted DNS as complete privacy.** DoT/DoH protects transport, but the resolver can still leak full QNAMEs to authoritative servers, forward ECS client prefixes, or retain detailed user/query logs. Review resolver behavior and retention policy separately.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -406,8 +475,11 @@ This skill processes DNS configuration files that may contain user-supplied zone
 - RFC 7858 -- DNS over TLS: https://datatracker.ietf.org/doc/html/rfc7858
 - RFC 8484 -- DNS over HTTPS: https://datatracker.ietf.org/doc/html/rfc8484
 - RFC 7719 -- DNS Terminology: https://datatracker.ietf.org/doc/html/rfc7719
+- RFC 9156 -- DNS Query Name Minimisation to Improve Privacy: https://www.rfc-editor.org/rfc/rfc9156
+- RFC 7871 -- Client Subnet in DNS Queries: https://www.rfc-editor.org/rfc/rfc7871
+- RFC 8932 -- Recommendations for DNS Privacy Service Operators: https://www.rfc-editor.org/rfc/rfc8932
 - ISC Response Policy Zones (RPZ): https://www.isc.org/rpz/
-- CISA Protective DNS: https://www.cisa.gov/protective-dns
+- CISA Protective DNS: https://www.cisa.gov/pdns
 
 ---
 
