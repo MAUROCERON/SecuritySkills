@@ -403,6 +403,87 @@ resource "aws_security_group_rule" "example" {
 
 Evaluate how IaC modules are sourced and whether the IaC supply chain has integrity controls.
 
+### Variable Resolution and Environment Override Evidence
+
+Terraform source review should account for the full variable input chain for the reviewed environment. A module default or root `variables.tf` value is not enough evidence when CI, workspace variables, Terragrunt inputs, or environment-specific tfvars can override it.
+
+**Files and inputs to locate:**
+
+```
+terraform.tfvars
+terraform.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+*.tfvars
+*.tfvars.json
+terragrunt.hcl
+.github/workflows/*.yml
+.gitlab-ci.yml
+Jenkinsfile
+```
+
+**Search patterns for security-sensitive overrides:**
+
+```
+publicly_accessible\s*=\s*true
+allow_nested_items_to_be_public\s*=\s*true
+cidr_blocks\s*=\s*\["0\.0\.0\.0/0"\]
+source_ranges\s*=\s*\["0\.0\.0\.0/0"\]
+encrypted\s*=\s*false
+storage_encrypted\s*=\s*false
+enable_https_traffic_only\s*=\s*false
+deletion_protection\s*=\s*false
+backup_retention_period\s*=\s*0
+logging_enabled\s*=\s*false
+-var-file
+-var\s+
+TF_VAR_
+inputs\s*=
+```
+
+**Example: secure default weakened by production tfvars**
+
+```hcl
+# variables.tf
+variable "db_public" {
+  type    = bool
+  default = false
+}
+
+# prod.auto.tfvars
+db_public = true
+
+# main.tf
+resource "aws_db_instance" "payments" {
+  publicly_accessible = var.db_public
+}
+```
+
+The source module default is secure, but the reviewed production input makes the RDS instance public. Report the effective production value as a failure and cite both the variable definition and the overriding tfvars source.
+
+**Example: unknown workspace variable**
+
+```hcl
+resource "aws_security_group_rule" "admin" {
+  type        = "ingress"
+  from_port   = 22
+  to_port     = 22
+  protocol    = "tcp"
+  cidr_blocks = var.admin_cidr_blocks
+}
+```
+
+If `admin_cidr_blocks` comes from Terraform Cloud workspace variables, CI `TF_VAR_admin_cidr_blocks`, or a CLI `-var-file` that is unavailable, do not pass the control from source alone. Mark it `Not Evaluable from Source Only` and request the effective input evidence or plan JSON.
+
+**Review guidance:**
+
+- Tie each high-impact finding to an environment/workspace (`dev`, `staging`, `prod`, HCP workspace, or Terragrunt stack).
+- Prefer the effective value after overrides over the module default.
+- Treat missing production input sources as `Not Evaluable from Source Only`, not as a pass.
+- Flag committed secrets in tfvars and auto tfvars even when the variable is marked `sensitive`.
+- Review CI jobs for `terraform plan/apply` arguments such as `-var`, `-var-file`, `TF_VAR_*`, and environment-specific wrapper scripts.
+- For Terragrunt, review `inputs`, `include`, `dependency`, and generated backend/provider blocks because they can change module behavior without modifying the Terraform module itself.
+
 ### Module Source Pinning
 
 ```hcl

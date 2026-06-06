@@ -55,6 +55,7 @@ The OWASP IaC Security Cheat Sheet categorizes common IaC vulnerabilities. SLSA 
 - Access to IaC source files (Terraform `.tf`/`.tfvars`, CloudFormation `.yaml`/`.json`, Pulumi source, Bicep `.bicep`)
 - Access to module registries or module source references
 - Variable definition files and environment-specific overrides
+- Workspace, CI, or Terraform Cloud/HCP variable inputs that can override source defaults
 - State file references (for understanding current deployment, if available)
 
 ---
@@ -73,6 +74,10 @@ Use Glob to locate all IaC configuration files.
 **/*.tf.json
 **/terraform.tfstate
 **/*.tfstate.backup
+**/*.auto.tfvars
+**/*.tfvars.json
+**/terragrunt.hcl
+**/.terraform.lock.hcl
 **/cloudformation/**/*.yaml
 **/cloudformation/**/*.json
 **/cfn-templates/**/*.yaml
@@ -90,7 +95,54 @@ Classify the IaC stack(s) in use. Record the total file count and frameworks det
 
 ---
 
-### Step 2 through Step 9: Security Domain Evaluation
+### Step 2: Variable Resolution and Environment Override Evidence
+
+**Objective:** Verify that findings are based on the effective input set for the reviewed environment, not only on Terraform defaults or a single source file.
+
+Terraform variable values can come from defaults, environment variables, `terraform.tfvars`, `*.auto.tfvars`, CLI `-var` and `-var-file` arguments, Terraform Cloud/HCP workspace variables, variable sets, Terragrunt inputs, and CI secrets. Later or environment-specific inputs can turn a secure-looking module into a public, unencrypted, or overly permissive deployment.
+
+**What to collect:**
+
+- Reviewed environment/workspace name (`dev`, `staging`, `prod`, Terraform workspace, HCP workspace, Terragrunt stack)
+- Variable files in scope: `terraform.tfvars`, `*.auto.tfvars`, `*.tfvars.json`, environment-specific `-var-file` inputs
+- CI/CD command line or workflow evidence showing `terraform plan/apply` arguments
+- Terraform Cloud/HCP workspace variables and variable sets, if used
+- Terragrunt `inputs`, `include`, and dependency outputs that feed module variables
+- Module defaults for security-sensitive variables such as public access, encryption, logging, CIDR ranges, IAM principals, retention, and deletion protection
+
+**What to look for:**
+
+```
+IAC-VAR-01: Reviewed environment/workspace is not identified
+IAC-VAR-02: Security-sensitive variables have defaults but no environment override evidence
+IAC-VAR-03: `terraform.tfvars`, `*.auto.tfvars`, or CI `-var-file` inputs were not reviewed
+IAC-VAR-04: Environment override weakens a security control (for example public access, encryption, logging, retention, deletion protection, or CIDR scope)
+IAC-VAR-05: Terraform Cloud/HCP workspace variables or variable sets affect the run but are unavailable
+IAC-VAR-06: Terragrunt inputs, dependency outputs, or generated provider/backend blocks are not reviewed
+IAC-VAR-07: Sensitive values are committed in tfvars, auto tfvars, local override files, or CI plan logs
+```
+
+**Decision logic:**
+
+- If the effective value is visible in source, tfvars, Terragrunt, plan JSON, or CI evidence, evaluate the resulting control state.
+- If security posture depends on unavailable workspace variables, variable sets, environment variables, or CLI `-var-file` inputs, mark the relevant finding as `Not Evaluable from Source Only` instead of passing it.
+- If an override explicitly weakens a control for the reviewed environment, report the weakened effective value even when the module default is secure.
+- If only non-production inputs are available, do not claim production readiness unless production input evidence is also provided.
+
+**Output evidence fields:**
+
+| Field | Description |
+|---|---|
+| Environment / Workspace | Reviewed deployment context |
+| Variable Sources Reviewed | Defaults, tfvars, auto tfvars, CLI args, CI, HCP/TFC, Terragrunt |
+| Security-Sensitive Variables | Variables affecting exposure, encryption, IAM, logging, retention, deletion protection |
+| Effective Value Evidence | Source file, tfvars line, plan JSON path, CI command, HCP/TFC export, or Terragrunt input |
+| Missing Inputs | Variable sources not available to the reviewer |
+| Outcome | Pass / Fail / Partial / Not Evaluable from Source Only |
+
+---
+
+### Step 3 through Step 10: Security Domain Evaluation
 
 Evaluate all IaC configurations across eight security domains: Hardcoded Secrets Detection, Public Exposure Analysis, Encryption Gap Analysis, IAM and Access Control Review, Logging and Monitoring Gaps, Network Security Review, Supply Chain Integrity (SLSA Alignment), and Resource Hardening.
 
@@ -101,7 +153,7 @@ For detailed tool-specific rule sets, detection patterns, vulnerable code exampl
 
 ---
 
-### Step 10: Compile Assessment Report
+### Step 11: Compile Assessment Report
 
 Produce the final report using the structure defined in the Output Format section.
 
@@ -169,6 +221,13 @@ Produce the final report using the structure defined in the Output Format sectio
 - State encryption: <encrypted / unencrypted>
 - State locking: <enabled / disabled>
 - Lock file committed: <yes / no>
+- Input resolution evidence: <complete / partial / not evaluable>
+
+### Variable Resolution and Environment Override Evidence
+
+| Environment | Variable Sources Reviewed | Security-Sensitive Inputs | Missing Inputs | Outcome |
+|---|---|---|---|---|
+| <workspace/env> | <defaults/tfvars/CI/HCP/Terragrunt> | <public_access, encrypted, cidr_blocks, etc.> | <none or list> | <Pass/Fail/Partial/Not Evaluable> |
 
 ### Prioritized Remediation Plan
 
@@ -229,7 +288,8 @@ This skill applies checks equivalent to the following high-impact rules:
 4. **CloudFormation parameters with NoEcho.** Parameters marked `NoEcho: true` are not necessarily secure -- the default value is still in plaintext in the template.
 5. **Confusing `aws_s3_bucket_acl` with `aws_s3_bucket_public_access_block`.** The public access block overrides ACLs. Check both, but the access block is the stronger control.
 6. **Terraform state file secrets.** Even when variables are marked `sensitive`, they may appear in plaintext in the state file. Verify state encryption and access controls.
-7. **Provider-specific encryption defaults.** Some providers encrypt by default (e.g., AWS S3 since January 2023). Know the defaults before flagging missing explicit encryption configuration.
+7. **Assuming module defaults equal production values.** Workspace variables, `*.auto.tfvars`, CI `-var-file` inputs, Terraform Cloud variable sets, or Terragrunt inputs can override secure-looking defaults. Review the effective input chain before passing exposure, encryption, IAM, or logging controls.
+8. **Provider-specific encryption defaults.** Some providers encrypt by default (e.g., AWS S3 since January 2023). Know the defaults before flagging missing explicit encryption configuration.
 
 ---
 
@@ -259,6 +319,10 @@ This skill applies checks equivalent to the following high-impact rules:
 - KICS (Keeping Infrastructure as Code Secure): https://docs.kics.io/
 - cfn-nag Rules: https://github.com/stelligent/cfn_nag
 - Terraform Security Best Practices: https://developer.hashicorp.com/terraform/cloud-docs/recommended-practices
+- Terraform Input Variables and Variable Definitions: https://developer.hashicorp.com/terraform/language/values/variables
+- Terraform Cloud Workspace Variables: https://developer.hashicorp.com/terraform/cloud-docs/variables
+- Terraform CLI Workspaces: https://developer.hashicorp.com/terraform/language/state/workspaces
+- Terragrunt Inputs: https://docs.terragrunt.com/reference/hcl/attributes/
 - AWS Security Best Practices in IAM: https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
 
 ---
