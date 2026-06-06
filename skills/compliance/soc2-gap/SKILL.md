@@ -297,6 +297,43 @@ For detailed Trust Services Criteria evaluation questions, evidence requirements
 
 ---
 
+### Step 5: Audit-Period Evidence Quality and Sampling Gates
+
+Before scoring any criterion as ready for a SOC 2 Type II examination, evaluate whether the evidence proves both design and operating effectiveness for the intended observation period. Evidence that merely exists, is stale, covers a partial system boundary, or lacks sample logic should not inflate readiness.
+
+**Review checklist:**
+
+```
+SOC2-EVID-01: Evidence date or collection date falls outside the intended audit period
+SOC2-EVID-02: Evidence supports design only, but the criterion is scored as operating effectively
+SOC2-EVID-03: Sample population, sample size, or selection method is missing for periodic controls
+SOC2-EVID-04: Evidence covers only a subset of the in-scope system boundary, people, processes, data, or third parties
+SOC2-EVID-05: Evidence owner, source system, retention location, or collection procedure is missing
+SOC2-EVID-06: Exceptions are identified but exception disposition, remediation, and retest evidence are missing
+SOC2-EVID-07: Point-in-time screenshot is used for a recurring control without period coverage evidence
+SOC2-EVID-08: Readiness score is not downgraded when evidence is stale, incomplete, or outside the audit period
+```
+
+**Evidence quality matrix:**
+
+| Evidence Item | Required Fields |
+|---|---|
+| Audit period coverage | Audit period start/end, evidence start/end, frequency, design vs. operating-effectiveness classification |
+| Sample sufficiency | Population, sample size, selection method, sampled items, exceptions found, exception disposition |
+| Evidence freshness | Evidence date, collection date, owner, source system, retention location, refresh cadence |
+| System boundary mapping | In-scope service, infrastructure, software, people, procedures, data, subservice organizations, and third parties covered |
+| Scoring impact | Score cap, readiness downgrade reason, remediation owner, and evidence needed for score 4 |
+
+**Decision rules:**
+
+- Do not score a criterion **4 / Managed** unless evidence covers the full intended observation period or an auditor-accepted sample across that period.
+- Cap recurring controls at **3 / Defined** when evidence exists but lacks population/sample logic or covers only a point in time.
+- Cap controls at **2 / Developing** when evidence is outside the audit period or does not map to the in-scope system description.
+- Mark evidence **Not Ready for Type II** when owner, source system, collection date, or retention location cannot be identified.
+- For high-frequency controls such as access reviews, change management, vulnerability management, incident response, and vendor management, require sample selection logic and exception follow-up evidence.
+
+---
+
 ### Step 6: Remediation Roadmap
 
 Prioritize remediation by audit readiness impact. Items that would result in examination exceptions or qualifications take highest priority.
@@ -366,8 +403,9 @@ When performing a SOC 2 gap analysis, produce the following deliverables:
 3. **Category Summary**: Average maturity score per category with narrative assessment.
 4. **Critical Findings**: List of all criteria scored 0 or 1, with specific gap descriptions and remediation recommendations.
 5. **Evidence Checklist**: Customized evidence requirements based on in-scope criteria, marking items as Exists / Partial / Missing.
-6. **90-Day Remediation Roadmap**: Prioritized action items with owners, deadlines, and dependencies.
-7. **Overall Readiness Assessment**: Go/no-go recommendation for engaging a SOC 2 auditor.
+6. **Audit-Period Evidence Quality Matrix**: Evidence period, sample population, sample size, owner, source system, boundary coverage, exceptions, and score cap.
+7. **90-Day Remediation Roadmap**: Prioritized action items with owners, deadlines, and dependencies.
+8. **Overall Readiness Assessment**: Go/no-go recommendation for engaging a SOC 2 auditor.
 
 ## Prompt Injection Safety Notice
 
@@ -393,3 +431,9 @@ This skill processes user-supplied content including compliance documentation, p
 - The gap analysis is based on information available in the codebase and documentation. It cannot assess controls that exist only in human processes without documentation.
 - Scoring is subjective and should be validated by the organization's security leadership and, ideally, a qualified auditor.
 - This analysis uses the 2017 AICPA Trust Services Criteria (with 2022 updates). Verify with your auditor that these criteria are current for your engagement.
+
+## References
+
+- AICPA & CIMA SOC Suite of Services: https://www.aicpa-cima.com/resources/landing/system-and-organization-controls-soc-suite-of-services
+- AICPA & CIMA SOC 2 Description Criteria download page: https://www.aicpa-cima.com/resources/download/get-description-criteria-for-your-organizations-soc-2-r-report
+- NIST Cybersecurity Framework 2.0: https://www.nist.gov/cyberframework

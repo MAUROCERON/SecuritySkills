@@ -446,6 +446,29 @@ Score each criterion using the following maturity scale:
 | 3 | **Defined** | Controls are implemented and documented. Procedures are standardized. Evidence exists but may not cover the full audit period. |
 | 4 | **Managed** | Controls are fully implemented, documented, monitored, and operating effectively. Evidence covers the full audit period. Ready for SOC 2 Type II examination. |
 
+### Evidence Quality Score Caps
+
+Apply these caps before calculating readiness:
+
+| Evidence Condition | Maximum Score | Rationale |
+|---|---:|---|
+| Evidence exists but is point-in-time only for a recurring control | 3 | Design may be shown, but sustained operating effectiveness is not proven |
+| Evidence is outside the intended audit period | 2 | The artifact does not support Type II observation-period coverage |
+| Sample population, sample size, or selection method is missing | 3 | The reviewer cannot determine whether the evidence is representative |
+| Evidence does not map to the in-scope system boundary | 2 | The artifact may prove a control for a different system, process, team, or third party |
+| Exceptions lack disposition, remediation, and retest evidence | 3 | Operating effectiveness cannot be credited as complete |
+| Evidence owner, source system, collection date, or retention location is missing | 3 | The artifact cannot be reliably reproduced or retained for audit |
+
+### Audit-Period Evidence Quality Template
+
+Complete this matrix for each key evidence artifact used to justify a score of 3 or 4:
+
+```
+| Criteria | Control | Evidence Artifact | Audit Period Covered | Population | Sample Size / Method | Boundary Coverage | Owner / Source | Exceptions / Retest | Score Cap |
+|----------|---------|-------------------|----------------------|------------|----------------------|-------------------|----------------|---------------------|-----------|
+| CC6.1    | Access review | access-review.xlsx | 2026-01-01 to 2026-06-30 | all prod users | 25 of 250, risk-based | prod app + SSO | IAM owner / GRC tool | 2 exceptions remediated | 4 |
+```
+
 ### Scoring Template
 
 Complete the following matrix for all in-scope criteria:
@@ -514,6 +537,7 @@ After scoring, calculate:
 - **Category Averages**: Average score per TSC category (CC1, CC2, ..., CC9, A1, C1, PI1, P1).
 - **Critical Gaps**: Any criteria scored 0 or 1 that are in scope for the audit.
 - **Audit Readiness Assessment**: Score >= 3.0 average indicates likely readiness for examination; below 3.0 requires remediation before engaging an auditor.
+- **Evidence Quality Adjustment**: Apply the Evidence Quality Score Caps before using averages. A score >= 3.0 does not indicate Type II readiness when key criteria are capped by stale, partial, or non-representative evidence.
 
 ---
 
@@ -568,3 +592,19 @@ After scoring, calculate:
 | P1.6 | Third-party data sharing agreements; breach notification procedures |
 | P1.7 | Data quality procedures; data subject update mechanisms |
 | P1.8 | Privacy compliance monitoring; complaint handling process; privacy impact assessments |
+
+## Evidence Quality Fields Required for Type II Readiness
+
+Every artifact in the evidence checklist should include:
+
+| Field | Purpose |
+|---|---|
+| Audit period start/end | Shows whether the artifact supports the intended Type II observation period |
+| Evidence period start/end | Distinguishes period coverage from collection date |
+| Evidence date and collection date | Identifies stale or post-period artifacts |
+| Population and sample size | Shows whether the sample represents the control population |
+| Selection method | Explains random, judgmental, risk-based, or full-population testing |
+| In-scope boundary | Maps artifact to systems, people, procedures, data, and third parties in the system description |
+| Owner and source system | Shows who can reproduce the evidence and where it was generated |
+| Exceptions and remediation | Shows whether failed samples were resolved and retested |
+| Retention location | Shows where the artifact will be available to the auditor |
