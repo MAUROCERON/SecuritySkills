@@ -57,6 +57,7 @@ Before beginning, gather or confirm:
 - [ ] **Alert priority and response:** Desired severity level and expected analyst response procedure.
 - [ ] **Performance constraints:** Query time window, maximum execution time, and scheduled frequency.
 - [ ] **Existing rules:** Any current rules covering similar detections that may overlap or conflict.
+- [ ] **Suppression and exception inventory:** Current allowlists, suppression windows, lookup tables, macros, maintenance calendars, owners, tickets, and expiry dates that can prevent the rule from alerting.
 
 ---
 
@@ -456,6 +457,31 @@ Suppression:         Enabled, 1 hour
 Entity mapping:      Account -> UserPrincipalName, IP -> IPAddress, Host -> Computer
 ```
 
+### Step 4.1: Suppression and Exception Governance
+
+Treat suppressions, exclusions, allowlists, macros, and lookup-based filters as detection-control changes, not just noise-reduction settings. A rule can have correct ATT&CK mapping and query syntax but still fail if a broad or stale exception removes the attacker-controlled entity, route, host, user, or process from the result set.
+
+**Required exception evidence:**
+
+| Evidence | Required fields | Finding if missing |
+|----------|-----------------|--------------------|
+| Exception owner | Service owner, detection owner, approving manager, ticket/change ID | Exception cannot be approved or reviewed |
+| Scope boundary | Entity type, exact values, data source, rule IDs, environment, tenant/account, query fragment or lookup row | Broad filter may suppress unrelated detections |
+| Time boundary | Start time, expiry, maintenance window, review cadence, auto-disable behavior | Permanent tuning can hide future compromise |
+| Risk rationale | Business reason, false-positive evidence, residual threat coverage, ATT&CK techniques affected | Rule loses coverage without documented tradeoff |
+| Regression evidence | Before/after result counts, known-true-positive replay, expected suppressed benign event, query performance | Tuning change may reduce true-positive coverage |
+| Audit trail | Who changed the exception, when, old/new values, deployment target, rollback path | No accountable change history |
+
+**What to verify:**
+
+- [ ] Every suppression or allowlist has a named owner, change ticket, justification, and expiry/review date.
+- [ ] Exceptions are scoped to the smallest safe entity set: specific host/user/process/service account/source range plus environment, not broad wildcards.
+- [ ] Maintenance-window suppressions automatically expire and cannot remain enabled indefinitely.
+- [ ] Lookup tables or macros used in KQL/SPL filters are versioned, reviewed, and included in rule deployment evidence.
+- [ ] Known true-positive replay still fires after tuning unless the residual detection coverage is explicitly documented elsewhere.
+- [ ] Exception changes are visible in detection-rule change history and can be rolled back quickly.
+- [ ] Suppression windows are grouped by stable incident entities, not by attacker-controlled fields that can bypass alert creation.
+
 ### Step 5: Detection Rule Lifecycle Management
 
 **Lifecycle stages:**
@@ -496,8 +522,8 @@ Entity mapping:      Account -> UserPrincipalName, IP -> IPAddress, Host -> Comp
 | Severity | Label | Definition | SLA |
 |----------|-------|------------|-----|
 | P1 | Critical | Detection gap for an actively exploited technique with no SIEM coverage. Available log sources exist to build the rule. | Develop and deploy within 24 hours |
-| P2 | High | Detection rule exists but has a high false negative rate or is disabled due to performance issues. | Fix and redeploy within 7 days |
-| P3 | Medium | Detection rule needs tuning (high FP rate) or coverage improvement (missing sub-technique variants). | Tune within 30 days |
+| P2 | High | Detection rule exists but has a high false negative rate, is disabled due to performance issues, or is broadly/permanently suppressed without bounded exception evidence. | Fix and redeploy within 7 days |
+| P3 | Medium | Detection rule needs tuning (high FP rate), exception governance, or coverage improvement (missing sub-technique variants). | Tune within 30 days |
 | P4 | Low | Rule health metric outside target range (stale rule, high exclusion count). No immediate security impact. | Review within 90 days |
 
 ---
@@ -543,6 +569,11 @@ Produce SIEM rule deliverables in this structure:
 
 ### Known False Positives
 - [List specific FP sources]
+
+### Suppression and Exception Governance
+| Exception ID | Scope | Owner | Ticket | Expiry/Review Date | Residual Coverage | Regression Result |
+|--------------|-------|-------|--------|--------------------|-------------------|-------------------|
+| [EX-001] | [Exact entity/query scope] | [Owner] | [Ticket] | [Date] | [What still detects the threat] | [TP replay passed/failed] |
 
 ### Tuning Guidance
 - [Specific tuning recommendations]
@@ -632,6 +663,10 @@ Deploying a rule without confirming it fires on known-malicious activity is depl
 
 A detection rule that fires every 5 minutes on the same ongoing activity (e.g., a brute force attack lasting 2 hours) floods the alert queue with duplicates. Configure alert suppression or deduplication to prevent the same incident from generating hundreds of identical alerts. Use suppression windows and entity-based grouping to consolidate related alerts.
 
+### Pitfall 6: Treating Permanent Allowlists as Harmless Tuning
+
+Suppressions and exclusions reduce analyst noise, but they also create places where real attacker activity can disappear from the detection pipeline. Do not approve broad or permanent allowlists without owner, expiry, exact scope, residual coverage, and true-positive replay evidence. A filter such as `where Account !in (trusted_admins)` or `NOT [| inputlookup allowed_sources]` is only safe when the lookup is governed and reviewed.
+
 ---
 
 ## 8. Prompt Injection Safety Notice
@@ -658,3 +693,6 @@ This skill processes user-supplied content that may include SIEM query drafts, l
 8. **MITRE ATT&CK Data Sources** -- https://attack.mitre.org/datasources/
 9. **Sentinel Entity Mapping** -- https://learn.microsoft.com/en-us/azure/sentinel/map-data-fields-to-entities
 10. **Splunk CIM (Common Information Model)** -- https://docs.splunk.com/Documentation/CIM/latest/User/Overview
+11. **Microsoft Sentinel Scheduled Analytics Rules** -- https://learn.microsoft.com/en-us/azure/sentinel/scheduled-rules-overview
+12. **Splunk Enterprise Security Suppression Rules** -- https://docs.splunk.com/Documentation/ES/8.1.0/Admin/CreateSuppressionRulesFindings
+13. **Sigma Rule False Positives Field** -- https://sigmahq.io/docs/basics/rules.html
