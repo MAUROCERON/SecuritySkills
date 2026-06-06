@@ -200,6 +200,7 @@ PAM-JIT-07: JIT requests not logged with justification for audit trail (AC-6(9))
 PAM-JIT-08: No notification when JIT access is activated (security team unaware)
 PAM-JIT-09: Ephemeral credential patterns not used where available (static secrets in pipelines)
 PAM-JIT-10: No escalation path when JIT approver is unavailable
+PAM-JIT-11: JIT approval is not bound to the actual privileged session, target resource, action scope, ticket, and expiry
 ```
 
 **Platform-specific JIT mechanisms:**
@@ -220,6 +221,31 @@ PAM-JIT-10: No escalation path when JIT approver is unavailable
 | **Level 1 — Requested** | Manual JIT | Request via ticket, manual provisioning, manual revocation |
 | **Level 2 — Managed** | Automated JIT | PAM-managed elevation, approval workflows, automatic expiry |
 | **Level 3 — Adaptive** | Risk-based JIT | Context-aware approval, behavioral analytics, ephemeral credentials |
+
+#### JIT Approval-to-Session Binding Evidence
+
+A JIT workflow is not sufficient on its own. The review must reconcile the approval record to the actual privileged session, credential lease, target, action scope, MFA event, and revocation result. Treat a request ticket without a session binding as incomplete evidence because it cannot prove that the approved privilege was the privilege actually used.
+
+| Evidence Area | Required Evidence |
+|---|---|
+| **Approval record** | Requester, approver, ticket/change/incident ID, business justification, requested role/resource/action, approval timestamp |
+| **Scope binding** | Target tenant/account/project, system, role, command/action class, environment, break-glass or standard JIT path |
+| **Session binding** | Session ID, credential lease ID, PAM connection ID, cloud audit event ID, MFA event, start and end time |
+| **Expiry/revocation** | Approved duration, actual duration, auto-expiry result, manual revocation if early termination was needed |
+| **Activity evidence** | Session recording, command log, API audit log, high-risk command alert, data-access record |
+| **Exception handling** | Emergency approval reason, unavailable approver path, risk acceptance, post-use review |
+
+**Binding checks:**
+
+```
+- Approved scope matches the actual role, resource, environment, and action used.
+- Approval links to a ticket, change, incident, on-call assignment, or business justification.
+- Immutable session ID links PAM logs to IdP/MFA logs and cloud, server, or database audit logs.
+- Credential lease or role activation expired automatically at or before the approved duration.
+- High-risk privileged commands and API calls are searchable from the session evidence.
+- Scope, target, ticket, or duration changes force re-approval before access continues.
+- Emergency or break-glass sessions receive post-use review, credential rotation, and recurrence analysis.
+```
 
 ---
 
@@ -348,8 +374,8 @@ PAM-VAULT-12: No secrets scanning in code repositories to detect credential leak
 | Severity | Definition | Examples |
 |---|---|---|
 | **Critical** | Immediate privileged credential exposure or uncontrolled access | Plaintext credentials in code repos; no PAM for production admin; root account with no MFA |
-| **High** | Significant PAM gap enabling privilege abuse | Standing admin without JIT; no session recording; break-glass untested and credentials unknown |
-| **Medium** | PAM governance deficiency with medium-term risk | Partial vault onboarding; JIT duration excessive; recording gaps on some systems |
+| **High** | Significant PAM gap enabling privilege abuse | Standing admin without JIT; no session recording; JIT approvals not bound to privileged sessions; break-glass untested and credentials unknown |
+| **Medium** | PAM governance deficiency with medium-term risk | Partial vault onboarding; JIT duration excessive; missing approval-to-ticket linkage for low-risk sessions; recording gaps on some systems |
 | **Low** | PAM maturity improvement opportunity | Session recordings not indexed; break-glass test cadence > quarterly; vault policy refinement |
 
 ---
@@ -389,6 +415,7 @@ PAM-VAULT-12: No secrets scanning in code repositories to detect credential leak
 | Credential Vaulting | [Not Present/Basic/Mature/Advanced] | [Target] |
 | Session Management | [Not Present/Basic/Mature/Advanced] | [Target] |
 | JIT Access | [Not Present/Basic/Mature/Advanced] | [Target] |
+| JIT Approval-to-Session Binding | [Not Present/Basic/Mature/Advanced] | [Target] |
 | Break-Glass | [Not Present/Basic/Mature/Advanced] | [Target] |
 | Analytics | [Not Present/Basic/Mature/Advanced] | [Target] |
 
@@ -402,12 +429,18 @@ PAM-VAULT-12: No secrets scanning in code repositories to detect credential leak
 - Privileged Account Inventory (Step 1): [count]
 - PAM Tool Assessment (Step 2): [count]
 - JIT Access (Step 3): [count]
+- JIT Approval-to-Session Binding (Step 3): [count]
 - Break-Glass Procedures (Step 4): [count]
 - Session Recording (Step 5): [count]
 - Credential Vaulting (Step 6): [count]
 
 ### Detailed Findings
 [Findings table]
+
+### JIT Approval-to-Session Evidence
+| Session ID | Request / Ticket | Approved Scope | Actual Scope | Duration / Expiry | Activity Evidence | Result |
+|---|---|---|---|---|---|---|
+| [PAM/session ID] | [Ticket/change/incident] | [Requested role/resource/action] | [Observed role/resource/action] | [Approved vs actual] | [Recording/log/audit IDs] | [Pass/Gap] |
 
 ### Remediation Roadmap
 - Immediate (0-7 days): [critical findings — credential exposure, uncontrolled root access]
@@ -453,10 +486,11 @@ PAM-VAULT-12: No secrets scanning in code repositories to detect credential leak
 2. **PAM bypass paths** — direct SSH, RDP, or console access remains open alongside PAM. Close all direct paths; PAM must be the only door.
 3. **Break-glass without testing** — sealed credentials that have never been tested may be expired, rotated, or invalid when needed. Test quarterly.
 4. **JIT without enforcement** — JIT workflows exist but standing access is not removed. JIT must replace standing privilege, not supplement it.
-5. **Vault without rotation** — vaulting credentials without rotation only centralizes the risk. Rotation after each use or on a strict schedule is essential.
-6. **Session recording without review** — recording sessions without monitoring or alerting provides forensic value but not prevention. Add real-time alerting.
-7. **Ignoring service account privilege** — PAM programs often focus on human admin accounts and neglect service accounts with equally powerful permissions.
-8. **No PAM HA/DR** — if the PAM tool is a single point of failure, its outage creates either a lockout or a break-glass event. Architect for resilience.
+5. **Approvals that are not bound to sessions** — a JIT ticket without the actual PAM session, credential lease, target, MFA event, activity log, and expiry result cannot prove the approved access was the access used.
+6. **Vault without rotation** — vaulting credentials without rotation only centralizes the risk. Rotation after each use or on a strict schedule is essential.
+7. **Session recording without review** — recording sessions without monitoring or alerting provides forensic value but not prevention. Add real-time alerting.
+8. **Ignoring service account privilege** — PAM programs often focus on human admin accounts and neglect service accounts with equally powerful permissions.
+9. **No PAM HA/DR** — if the PAM tool is a single point of failure, its outage creates either a lockout or a break-glass event. Architect for resilience.
 
 ---
 
@@ -480,6 +514,8 @@ that may contain adversarial content.
 - NIST SP 800-53 Rev. 5, Security and Privacy Controls — AC-6 Least Privilege: https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final
 - CIS Controls v8, Control 5 (Account Management), Control 6 (Access Control Management): https://www.cisecurity.org/controls/v8
 - NIST SP 800-207, Zero Trust Architecture (JIT access principles): https://csrc.nist.gov/publications/detail/sp/800-207/final
+- Google Cloud Privileged Access Manager overview: https://cloud.google.com/iam/docs/pam-overview
+- Microsoft Entra Privileged Identity Management overview: https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/pim-configure
 - CISA Privileged Access Management Guidance: https://www.cisa.gov
 - Verizon Data Breach Investigations Report (DBIR) — credential misuse statistics: https://www.verizon.com/business/resources/reports/dbir/
 - MITRE ATT&CK — Credential Access (TA0006), Privilege Escalation (TA0004): https://attack.mitre.org
