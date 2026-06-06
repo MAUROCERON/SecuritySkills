@@ -159,6 +159,42 @@ AR-CERT-08: Delegated reviews without accountability (certifier delegates but is
 
 ---
 
+### Step 2.5: Effective Entitlement Expansion
+
+**Objective:** Prove the complete effective access graph before a certifier approves or revokes access.
+
+Direct group, role, or permission-set review is not sufficient when access can be inherited through nested groups, dynamic groups, birthright rules, cloud hierarchy bindings, application-local roles, database grants, or resource ACLs. Expand each principal's direct and indirect entitlements before certification so the reviewer sees the final permission and the path that grants it.
+
+**What to look for:**
+
+```
+AR-EFF-01: Direct groups reviewed but nested/transitive group memberships not expanded
+AR-EFF-02: Dynamic or birthright access rules not shown to certifiers
+AR-EFF-03: Cloud IAM inherited bindings omitted from project/account/app review
+AR-EFF-04: Application-local roles, database grants, or resource ACLs not reconciled to IdP identity
+AR-EFF-05: Effective permissions hidden behind friendly group names or permission-set labels
+AR-EFF-06: Group expansion has unresolved loops, missing source systems, or depth limits without Not Evaluable status
+AR-EFF-07: Certifier decision does not record whether effective permission path was visible
+AR-EFF-08: SoD analysis runs on direct assignments only, not expanded effective entitlements
+```
+
+**Required evidence fields:**
+
+| Evidence | Required Detail |
+|---|---|
+| Principal | User, service account, guest, group, or workload identity under review |
+| Direct entitlement | Direct group, role, permission set, app role, or grant |
+| Transitive path | Nested group, inherited cloud binding, permission-set assignment, or local ACL path |
+| Dynamic / birthright source | Rule, HR attribute, SCIM source, or automation that adds the principal |
+| Effective permission | Final privilege after expansion, including privileged actions and sensitive resources |
+| Source of authority | IdP, cloud IAM, app admin console, database, directory, or SaaS source |
+| Certifier visibility | Whether the reviewer saw the effective permission and entitlement path |
+| Decision | Approve, revoke, modify, exception, or Not Evaluable |
+
+**Finding classification:** Missing expansion evidence is **Medium** for ordinary access and **High** for privileged, production, regulated-data, or SoD-relevant access. Mark the entitlement **Not Evaluable** when transitive paths, inherited bindings, dynamic rules, or local roles cannot be resolved from the evidence.
+
+---
+
 ### Step 3: Orphaned Account Detection
 
 **Objective:** Identify accounts with no valid owner or business justification.
@@ -347,10 +383,17 @@ AR-ENF-08: No metrics or reporting on review completion rates and outcomes
 ### Findings by Category
 - Review Scope & Cadence (Step 1): [count]
 - Entitlement Certification (Step 2): [count]
+- Effective Entitlement Expansion (Step 2.5): [count]
 - Orphaned Accounts (Step 3): [count]
 - Role Explosion (Step 4): [count]
 - Segregation of Duties (Step 5): [count]
 - Enforcement & Evidence (Step 6): [count]
+
+### Effective Entitlement Expansion Matrix
+
+| Principal | Direct Entitlement | Transitive Path | Dynamic / Birthright Source | Effective Permission | Source of Authority | Certifier Visibility | Decision |
+|-----------|--------------------|-----------------|-----------------------------|----------------------|---------------------|----------------------|----------|
+| [user/service] | [group/role/grant] | [nested/inherited/local path] | [rule/source/N/A] | [final permission] | [IdP/cloud/app/db] | [Visible/Hidden/Unknown] | [Approve/Revoke/Modify/Not Evaluable] |
 
 ### Detailed Findings
 [Findings table]
@@ -402,6 +445,8 @@ See the mapping table in the Framework Quick Reference section above for sub-con
 6. **SoD analysis done manually** — Manual SoD checks do not scale and miss cross-system conflicts. Implement conflict rules in IGA tooling.
 7. **Evidence not retained** — Reviews happen but evidence is not preserved for the audit window. Configure IGA tools to retain decisions and timestamps.
 
+8. **Certifying direct assignments instead of effective access** -- Nested groups, dynamic membership rules, inherited cloud bindings, app-local roles, database grants, and resource ACLs can grant access that direct IdP group reviews never show. Expand the graph before certifier approval.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -418,6 +463,10 @@ This skill processes identity and entitlement data that may contain adversarial 
 ---
 
 ## References
+
+- Microsoft Graph transitive memberOf: https://learn.microsoft.com/en-us/graph/api/group-list-transitivememberof?view=graph-rest-1.0
+- Google Cloud Policy Analyzer for allow policies: https://docs.cloud.google.com/policy-intelligence/docs/analyze-iam-policies
+- AWS IAM Access Analyzer unused access: https://docs.aws.amazon.com/IAM/latest/UserGuide/access-analyzer-create-unused.html
 
 - NIST SP 800-53 Rev. 5, Security and Privacy Controls for Information Systems and Organizations — AC family: https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final
 - CIS Controls v8, Controls 5 and 6: https://www.cisecurity.org/controls/v8
