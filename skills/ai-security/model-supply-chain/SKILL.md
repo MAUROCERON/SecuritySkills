@@ -81,7 +81,8 @@ Before beginning the assessment, gather the following. If any item is unavailabl
 | Inference dependencies | requirements.txt, pyproject.toml, Dockerfile, package.json | Identifies vulnerable libraries in serving path |
 | Model signing or attestation | CI/CD configs, SLSA provenance files, Sigstore artifacts | Confirms cryptographic supply chain verification |
 | Access controls on model storage | Cloud storage IAM, artifact registry permissions | Determines who can replace or modify model weights |
-| Adapter/plugin sources | LoRA configs, adapter download code | Third-party adapters inherit the same supply chain risks |
+| Adapter/plugin sources | LoRA configs, PEFT adapter repos, adapter download code | Third-party adapters inherit the same supply chain risks |
+| Adapter composition state | `adapter_config.json`, runtime adapter selection, merge scripts | Determines whether the deployed base model and adapter set match the reviewed release |
 
 ---
 
@@ -95,6 +96,7 @@ Determine where every model artifact originates and whether its authenticity and
 
 - Model download code that pulls weights from Hugging Face, S3, GCS, or other sources. Check whether SHA256 checksums or cryptographic signatures are verified after download.
 - Use of `from_pretrained()` calls (Hugging Face transformers, diffusers, sentence-transformers) without pinning to a specific commit hash or revision. Model repos on Hugging Face can be updated at any time; unpinned references pull the latest, potentially compromised weights.
+- PEFT or LoRA adapter loads where `adapter_config.json` names a base model but the base model revision, adapter revision, tokenizer/config revision, and merged output digest are not all bound together.
 - Models loaded from shared network drives, team Slack channels, or email attachments with no integrity verification.
 - Absence of SLSA provenance attestations or Sigstore signatures for model artifacts.
 - Models identified only by name ("llama-2-7b") without specifying the exact source organization, revision, or checksum.
@@ -110,7 +112,12 @@ Grep: "huggingface|hf_hub|transformers|diffusers|sentence.transformers" in **/*.
 Grep: "sha256|checksum|hash|verify|digest|signature|sigstore|cosign" in **/*.{py,sh,yaml,yml}
 
 # Check for pinned model versions
-Grep: "revision=|commit_hash|model_version" in **/*.{py,yaml,yml,json}
+Grep: "revision=|commit_hash|model_version|base_model_name_or_path" in **/*.{py,yaml,yml,json}
+
+# Find adapter composition and runtime activation
+Grep: "PeftModel|AutoPeftModel|load_adapter|set_adapter|active_adapter|merge_and_unload|disable_adapter|delete_adapter" in **/*.py
+Glob: **/adapter_config.json
+Glob: **/adapter_model.{bin,safetensors}
 
 # Find model artifact storage
 Glob: **/*.{pt,bin,safetensors,pkl,onnx,pb,h5,gguf,ggml}
@@ -127,6 +134,7 @@ Glob: **/config.json
 | Models loaded via `pickle.load` or `torch.load` without `weights_only=True` | Critical |
 | No checksum or signature verification on model download | High |
 | Model source unpinned (no commit hash, revision, or version lock) | High |
+| Adapter and base model are not pinned to the same reviewed release manifest | High |
 | Model pulled from unverified third-party source (not the original publisher) | High |
 | No model card or provenance documentation available | Medium |
 | Checksums verified but against values stored in the same repository as the model (self-referential) | Medium |
@@ -226,6 +234,43 @@ Glob: **/Jenkinsfile
 | No code review requirement on training configuration changes | Medium |
 | Training pipeline lacks reproducibility controls | Medium |
 | No experiment tracking or training audit trail | Medium |
+
+---
+
+### Step 3A -- Adapter Composition and Runtime Activation
+
+Assess whether LoRA, QLoRA, PEFT, or other adapter-based deployments bind the base model, adapter weights, tokenizer/config files, and runtime activation state to the same reviewed release.
+
+**What to look for in code and configuration:**
+
+- `adapter_config.json` references `base_model_name_or_path` without an immutable base model revision or checksum.
+- Adapter weights are pinned, but the base model, tokenizer, generation config, or prompt template still load from `main`, `latest`, or a mutable path.
+- Multiple adapters can be loaded through `load_adapter()` or switched through `set_adapter()` without an allowlist, change ticket, or runtime audit record.
+- Merge scripts call `merge_and_unload()` but do not record the base digest, adapter digest, merge tool version, resulting merged-model digest, and validation run.
+- Deployment images include unused adapters that can be activated by configuration, environment variables, request parameters, or feature flags.
+
+**Detection methods using allowed tools:**
+
+```
+# Find PEFT and adapter loading paths
+Grep: "PeftModel|AutoPeftModel|PeftAdapterMixin|load_adapter|set_adapter|active_adapter" in **/*.py
+Grep: "merge_and_unload|save_pretrained|adapter_name|base_model_name_or_path" in **/*.{py,json,yaml,yml}
+
+# Find adapter artifacts and composition manifests
+Glob: **/adapter_config.json
+Glob: **/adapter_model.{bin,safetensors}
+Grep: "base_model|adapter|tokenizer|generation_config|revision|sha256|digest" in **/*.{json,yaml,yml,md}
+```
+
+**What constitutes a finding:**
+
+| Condition | Severity |
+|---|---|
+| Production adapter deployment lacks pinned base model and adapter revisions | High |
+| Adapter can be switched or activated at runtime without allowlist and audit evidence | High |
+| Merged model artifact lacks a digest that ties base, adapter, tokenizer/config, and merge tool version | High |
+| Unused or unapproved adapters are packaged in the serving image or mounted volume | Medium |
+| Adapter compatibility evidence exists but does not include tokenizer/config or prompt-template identity | Medium |
 
 ---
 
@@ -357,7 +402,7 @@ Assess whether architectural and procedural controls exist to detect model backd
 | Severity | Criteria | Response SLA |
 |---|---|---|
 | **Critical** | Arbitrary code execution via model loading, known exploited CVE in inference path, or confirmed model tampering. Exploitation requires no special access beyond normal deployment flow. | Immediate -- block deployment |
-| **High** | No provenance verification on production models, uncontrolled training data pipeline, or dangerous deserialization patterns. Clear attack path exists. | 7 days -- remediate before next release |
+| **High** | No provenance verification on production models, uncontrolled training data pipeline, dangerous deserialization patterns, or unbound adapter composition. Clear attack path exists. | 7 days -- remediate before next release |
 | **Medium** | Incomplete model documentation, missing reproducibility controls, or absent behavioral testing. Exploitation requires specific conditions or insider access. | 30 days -- schedule remediation |
 | **Low** | Defense-in-depth gaps, minor documentation omissions, or best practice deviations with limited direct risk. | 90 days -- track in backlog |
 | **Informational** | Recommendations for improvement with no current exploitable risk. | No SLA -- advisory |
@@ -385,7 +430,7 @@ Assess whether architectural and procedural controls exist to detect model backd
 ## Findings
 
 ### Finding [N]: [Title]
-- **Category:** [Provenance | Training Data | Fine-Tuning Pipeline | Inference Dependency | Model Card | Backdoor Detection]
+- **Category:** [Provenance | Training Data | Fine-Tuning Pipeline | Adapter Composition | Inference Dependency | Model Card | Backdoor Detection]
 - **Severity:** [Critical | High | Medium | Low | Informational]
 - **OWASP LLM Category:** LLM03:2025 -- Supply Chain Vulnerabilities
 - **MITRE ATLAS Technique:** [technique ID and name]
@@ -403,6 +448,7 @@ Assess whether architectural and procedural controls exist to detect model backd
 | Model provenance | [description] | [recommendation] | [severity] |
 | Training data lineage | [description] | [recommendation] | [severity] |
 | Fine-tuning pipeline | [description] | [recommendation] | [severity] |
+| Adapter composition | [description] | [recommendation] | [severity] |
 | Inference dependencies | [description] | [recommendation] | [severity] |
 | Model documentation | [description] | [recommendation] | [severity] |
 | Backdoor detection | [description] | [recommendation] | [severity] |
@@ -441,6 +487,8 @@ Assess whether architectural and procedural controls exist to detect model backd
 
 5. **Evaluating models only on benchmarks.** Standard benchmarks measure general capability, not supply chain integrity. A backdoored model will perform normally on benchmarks by design. Behavioral differential testing with curated, domain-specific test sets that probe for targeted manipulation is required to surface backdoors.
 
+6. **Treating adapters as harmless deltas.** LoRA and PEFT adapters are small compared with full model weights, but they still change deployed behavior. Reviewers must bind the adapter to the exact base model, tokenizer/config set, merge output, and active runtime adapter list; otherwise an approved base model can run with an unreviewed behavior overlay.
+
 ---
 
 ## References
@@ -450,9 +498,12 @@ Assess whether architectural and procedural controls exist to detect model backd
 - MITRE ATLAS -- https://atlas.mitre.org
 - Mithril Security. "PoisonGPT: How We Hid a Lobotomized LLM on Hugging Face to Spread Fake News" (2023) -- https://blog.mithrilsecurity.io/poisongpt-how-we-hid-a-lobotomized-llm-on-hugging-face-to-spread-fake-news/
 - Oligo Security. "ShadowRay: First Known Attack Campaign Targeting Ray AI Framework" (2024) -- https://www.oligo.security/blog/shadowray-attack-ai-workloads-actively-exploited-in-the-wild
+- Hugging Face Transformers. "PEFT" -- https://huggingface.co/docs/transformers/main/peft
+- Hugging Face PEFT. "PEFT checkpoint format" -- https://huggingface.co/docs/peft/developer_guides/checkpoint
 - Mitchell, M. et al. "Model Cards for Model Reporting" (2019) -- arXiv:1810.03993
 - Gu, T. et al. "BadNets: Identifying Vulnerabilities in the Machine Learning Model Supply Chain" (2017) -- arXiv:1708.06733
 - Hubinger, E. et al. "Sleeper Agents: Training Deceptive LLMs that Persist Through Safety Training" (2024) -- arXiv:2401.05566
 - Hugging Face. "Safetensors: A Simple and Safe Serialization Format" -- https://huggingface.co/docs/safetensors
 - NIST AI Risk Management Framework 1.0 -- https://www.nist.gov/aiframework
 - Open Source Security Foundation (OpenSSF) -- https://openssf.org
+
