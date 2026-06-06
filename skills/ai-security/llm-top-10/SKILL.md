@@ -49,6 +49,7 @@ Before beginning the review, collect the following:
 - [ ] **Output flow** — how model output is rendered, parsed, or acted upon (HTML, CLI, database writes, API calls).
 - [ ] **Tool/function-calling configuration** — any tools the LLM can invoke, their permissions, and confirmation gates.
 - [ ] **RAG pipeline architecture** — document ingestion, chunking strategy, embedding model, vector store, retrieval query construction, context window assembly.
+- [ ] **RAG authorization evidence** — namespace/index/collection mapping, tenant and ACL metadata stamped on chunks, ingestion/backfill writer identity, debug/admin search paths, and permission-change propagation.
 - [ ] **Authentication and authorization context** — how user identity propagates through the LLM pipeline, whether the model inherits user permissions or operates with elevated privileges.
 - [ ] **Rate limiting and quota configuration** — per-user and per-session limits on model invocations.
 - [ ] **Data classification** — what sensitivity level of data flows into or out of the model (PII, PHI, financial, credentials).
@@ -102,6 +103,9 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 
 - System prompts containing API keys, database credentials, internal URLs, or business logic secrets.
 - RAG pipelines that retrieve documents without enforcing the querying user's authorization level — a user may receive context chunks from documents they should not access.
+- Retrieval filters that mention tenant or ACL metadata while ingestion/backfill writes all chunks into a shared default namespace, collection, or index.
+- Source-system permission changes that are not propagated to vector metadata, embedding caches, or tombstones before affected chunks remain retrievable.
+- Admin, debug, evaluation, or support search endpoints that bypass user-facing retrieval filters and can query across tenants.
 - Logging or monitoring pipelines that store full prompt/response pairs containing user PII or sensitive business data.
 - Absence of output filtering — model responses streamed or returned to the client without scanning for sensitive patterns (SSNs, credit card numbers, credentials).
 - Fine-tuned models trained on datasets containing PII, credentials, or proprietary data without data sanitization.
@@ -110,6 +114,8 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 
 - Grep system prompt files and prompt template code for hardcoded secrets, internal hostnames, or credential patterns.
 - Review RAG retrieval logic for authorization checks — does the vector query filter by the requesting user's access level?
+- Trace authorization from source document ACL to chunk metadata, vector upsert target, query namespace/filter, reranker, and final context assembly.
+- Compare user-facing retrieval with ingestion, scheduled backfill, evaluation, support, and debug/admin search paths; the same tenant boundary must hold in each path.
 - Search for logging statements that capture full `messages` arrays, completion text, or embedding inputs.
 - Check whether output filtering or redaction is applied before responses reach the end user.
 
@@ -117,6 +123,8 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 
 - Never embed secrets, credentials, or internal infrastructure details in system prompts. Use environment variables or secret managers, referenced only by server-side code outside the prompt.
 - Implement document-level and chunk-level access control in RAG pipelines — filter retrieval results by the authenticated user's permissions before injecting into the prompt.
+- Bind retrieval to tenant namespace/index/collection selection and fail closed when tenant or ACL metadata is missing, stale, or not filterable by the vector store.
+- Rebuild, delete, or tombstone embeddings when source permissions change; do not rely on long-lived stale metadata in embedding caches.
 - Apply output filtering with regex-based or NER-based PII detectors (e.g., Microsoft Presidio) on model responses before returning to the user.
 - Sanitize training and fine-tuning datasets to remove PII, credentials, and proprietary data.
 - Minimize logging of full prompt/response content; if required for debugging, redact sensitive fields and enforce access controls on log storage.
@@ -165,6 +173,7 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 
 - Fine-tuning pipelines that ingest data from user-generated sources, public repositories, or unvetted third parties without validation.
 - RAG document ingestion endpoints that accept uploads from unauthenticated or low-trust users.
+- Scheduled ingestion or backfill jobs that run with broad service-account permissions and stamp incomplete, stale, or default tenant/ACL metadata.
 - Absence of content moderation or anomaly detection on documents entering the knowledge base.
 - RLHF or feedback loops where user feedback directly adjusts model behavior without review.
 - Embedding stores without write-access controls — any service or user can insert or overwrite embeddings.
@@ -172,6 +181,7 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 **Detection methods:**
 
 - Review document ingestion code paths: who can add, modify, or delete documents in the vector store? Are there authentication and authorization checks?
+- Inspect backfill and reindex jobs for writer identity, target namespace/index/collection, ACL metadata stamping, and deletion/tombstone behavior for removed access.
 - Check for content validation on ingested documents — format validation, length limits, anomaly detection, or human review steps.
 - Examine fine-tuning data pipelines for data provenance tracking and quality checks.
 - Search for feedback loops that directly influence model behavior without a human-in-the-loop approval step.
@@ -179,6 +189,8 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 **Mitigations:**
 
 - Enforce strict access controls on RAG document ingestion — require authentication, authorization, and audit logging for all write operations to the knowledge base.
+- Require ingestion and backfill to stamp tenant, document ACL, source version, and ACL version metadata before upsert; reject chunks that cannot be authorized.
+- Delete or tombstone chunks whose source document was removed or whose permissions changed, and verify the tombstone is honored by retrieval.
 - Validate and sanitize all data entering fine-tuning pipelines. Implement data provenance tracking.
 - Apply anomaly detection on ingested content — flag documents with unusual patterns, excessive instructions, or adversarial characteristics.
 - Implement human review workflows for fine-tuning dataset changes and knowledge base additions in high-risk applications.
@@ -292,6 +304,10 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 
 - Vector databases (Pinecone, Weaviate, Chroma, Milvus, pgvector, Qdrant) deployed without authentication or with default credentials.
 - No access control on vector store collections — all users query the same collection regardless of authorization level.
+- Shared default namespaces or collections used for multiple tenants even though application code later applies metadata filters.
+- Metadata filters applied only after `top_k` retrieval, reranking, or hybrid BM25/vector merge instead of before unauthorized chunks can enter the candidate set.
+- Ingestion, backfill, evaluation, or admin/debug search code paths that target a different namespace, tenant, or ACL filter than production retrieval.
+- Namespace or tenant auto-creation that can create typo-based shadow tenants during import and hide isolation drift.
 - Embeddings stored alongside or without separation from the original source text, enabling data exposure through vector store access.
 - No encryption at rest or in transit for vector store data.
 - Vector similarity search without relevance thresholds — low-similarity results injected into the prompt may introduce noise or adversarial content.
@@ -300,6 +316,10 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 
 - Review vector database configuration for authentication, authorization, network access controls, and encryption settings.
 - Check whether vector store queries are filtered by tenant, user, or permission scope.
+- Verify every upsert and query targets the expected namespace, tenant, collection, or index; do not review query filters without reviewing write targets.
+- Determine whether tenant/ACL filters are enforced by the vector database before candidate retrieval or only by application code after retrieval/reranking.
+- Test permission changes: remove a user's group or document access, then verify old chunks are deleted, tombstoned, reindexed, or filtered from all retrieval paths.
+- Review hybrid search, rerankers, evaluation harnesses, and debug/admin endpoints for the same tenant and ACL boundary as the user-facing path.
 - Examine whether a minimum similarity threshold is applied to retrieval results before they enter the prompt.
 - Verify that embedding API calls use TLS and that stored embeddings are encrypted at rest.
 - Check whether raw source text is stored in vector metadata and whether that metadata is access-controlled.
@@ -308,6 +328,9 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 
 - Enable authentication and authorization on vector databases. Never expose vector stores to unauthenticated access.
 - Implement tenant isolation or permission-based filtering on vector queries — users should only retrieve embeddings from documents they are authorized to access.
+- Prefer namespace, tenant, collection, or index isolation for hard multitenancy; when metadata filters are used, require filterable tenant/ACL fields and fail closed if they are absent.
+- Apply the same namespace and ACL policy in ingestion, backfill, reindex, retrieval, reranking, evaluation, and admin/debug search paths.
+- Maintain a revocation path: delete, tombstone, or reindex embeddings when source permissions change, and log the propagation lag.
 - Set minimum similarity score thresholds for retrieval results to prevent injection of irrelevant or adversarial content.
 - Encrypt embeddings at rest and in transit. Treat embeddings as sensitive data because source text can be partially reconstructed.
 - Do not store raw source text in vector metadata unless access controls are equivalent to the source document's classification.
@@ -390,7 +413,7 @@ Review the application against each of the ten OWASP LLM risk categories below. 
 | Severity | Criteria | Example |
 |----------|----------|---------|
 | **Critical** | Exploitable vulnerability enabling data exfiltration, unauthorized actions, or full system compromise via the LLM. | Prompt injection that triggers tool calls to exfiltrate database contents (LLM01 + LLM06). |
-| **High** | Significant risk of sensitive data exposure, privilege escalation, or substantial financial impact. | RAG pipeline returns documents the user is not authorized to access (LLM02). Unrestricted agent with database write access (LLM06). |
+| **High** | Significant risk of sensitive data exposure, privilege escalation, or substantial financial impact. | RAG pipeline returns documents the user is not authorized to access (LLM02). Shared vector namespace/backfill leaves stale cross-tenant chunks retrievable (LLM02 + LLM08). Unrestricted agent with database write access (LLM06). |
 | **Medium** | Moderate risk requiring specific conditions to exploit, or limited blast radius. | System prompt leakage revealing business logic but no credentials (LLM07). Missing rate limiting on LLM endpoint (LLM10). |
 | **Low** | Minor information disclosure, best practice deviation, or defense-in-depth gap. | Model output lacks disclaimer for AI-generated content (LLM09). Dependency one minor version behind with no known exploit (LLM03). |
 | **Informational** | Observation or recommendation for improvement with no current exploitable risk. | Suggest adding similarity score threshold to RAG retrieval (LLM08). |
@@ -423,6 +446,7 @@ Structure the findings report as follows:
 - **Location:** [file path, function, configuration]
 - **Description:** [What was found]
 - **Evidence:** [Code snippet, configuration excerpt, or architectural observation]
+- **RAG Authorization Evidence:** [For RAG findings: namespace/index/collection, ACL metadata, filter enforcement point, backfill path, revocation/tombstone evidence]
 - **Impact:** [What an attacker could achieve]
 - **Remediation:** [Specific, actionable fix with code example if applicable]
 - **Priority:** P1 | P2 | P3 | P4
@@ -504,6 +528,9 @@ When performing a review using this skill:
 - LLM05:2025 Improper Output Handling: https://genai.owasp.org/llmrisk/llm05-improper-output-handling/
 - LLM06:2025 Excessive Agency: https://genai.owasp.org/llmrisk/llm06-excessive-agency/
 - LLM07:2025 System Prompt Leakage: https://genai.owasp.org/llmrisk/llm07-system-prompt-leakage/
-- LLM08:2025 Vector and Embedding Weaknesses: https://genai.owasp.org/llmrisk/llm08-vector-and-embedding-weaknesses/
+- LLM08:2025 Vector and Embedding Weaknesses: https://genai.owasp.org/llmrisk/llm082025-vector-and-embedding-weaknesses/
 - LLM09:2025 Misinformation: https://genai.owasp.org/llmrisk/llm09-misinformation/
 - LLM10:2025 Unbounded Consumption: https://genai.owasp.org/llmrisk/llm10-unbounded-consumption/
+- Pinecone namespaces and metadata filtering: https://docs.pinecone.io/guides/get-started/concepts, https://docs.pinecone.io/guides/search/filter-by-metadata
+- Weaviate multi-tenancy: https://docs.weaviate.io/weaviate/manage-collections/multi-tenancy
+- Qdrant filtering: https://qdrant.tech/documentation/search/filtering/
