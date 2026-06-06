@@ -177,6 +177,21 @@ Authentication Configuration:
 - Last Verification:   [YYYY-MM-DD, success rate: [N]%]
 ```
 
+#### Credentialed Scan Coverage Evidence Gate
+
+Do not treat "scan completed" or "no vulnerabilities found" as proof that credentialed checks were performed. For each asset class, prove that the scanner authenticated with sufficient privilege and completed the local evidence collection required for package, patch, registry, file, or configuration checks.
+
+| Evidence | Required Detail |
+|---|---|
+| Asset credential scope | Asset group, platform, scanner engine, expected credential type, credential source, credential privilege level |
+| Authentication result | Success, failed, not attempted, partial, or unknown per asset or asset class |
+| Scanner-specific proof | Tenable credentialed checks evidence, Qualys authentication status QIDs, Rapid7 credential/test result, agent status, or equivalent vendor evidence |
+| Local inventory proof | Package manager inventory, patch inventory, registry/share access, file-system access, database/version query, network-device command output |
+| Reachability prerequisites | Management port/protocol reachability, firewall path, scan engine location, account lockout or rate-limit evidence |
+| Coverage decision | Full, Partial, Failed, Not Attempted, or Not Evaluable, with retest owner and due date |
+
+**Finding classification:** Mark the scan result **Not Evaluable** when credential status, local inventory retrieval, or privilege level cannot be proven. Treat failed credentialed checks on production assets as a **High** tuning gap when the scan is used for patch compliance, severity overrides, or false-positive suppression. Do not suppress a version-based finding or downgrade severity until credentialed evidence proves the installed package/patch state.
+
 ### Step 4: Severity Override Criteria
 
 Define criteria for overriding scanner-assigned severity ratings when they do not reflect actual organizational risk.
@@ -322,6 +337,12 @@ Highlight the most impactful tuning recommendations.]
 | Scan Frequency | [Current schedule] | [Recommended schedule] | [Priority] |
 | Port Range | [Current range] | [Recommended range] | [Priority] |
 
+### Credentialed Scan Coverage Matrix
+
+| Asset Class | Scanner / Engine | Credential Source | Auth Result | Local Inventory Proof | Failed / Not Attempted Assets | Coverage Decision | Retest Owner / Due Date |
+|---|---|---|---|---|---|---|---|
+| [Windows servers] | [scanner/engine] | [vault/site/shared credential] | [success/failed/partial] | [registry/share/package evidence] | [count/list] | [Full/Partial/Failed/Not Evaluable] | [owner/date] |
+
 ### False Positive Analysis
 
 | Plugin/Check ID | CVE ID | FP Pattern | Affected Assets | Evidence | Recommendation |
@@ -399,6 +420,8 @@ Common Weakness Enumeration. A community-developed list of software and hardware
 
 5. **Not correlating results across scanners.** Organizations running multiple scanners often treat each scanner's output independently, leading to duplicate remediation efforts for the same vulnerability and missed findings that only one scanner detects. Establish a correlation process using CVE ID as the primary key and CWE as a fallback for non-CVE findings.
 
+6. **Accepting unauthenticated or partially authenticated scans as negative evidence.** A clean scan is only useful if the scanner proved the local evidence it needed to inspect. Credential failures, insufficient privileges, stale agents, blocked management ports, or missing package/patch inventory turn "not detected" into unknown coverage. Track credentialed scan coverage separately from vulnerability counts.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -423,7 +446,11 @@ Common Weakness Enumeration. A community-developed list of software and hardware
 - PCI DSS 4.0 (Requirement 11.3): https://www.pcisecuritystandards.org/
 - Qualys VMDR Documentation: https://www.qualys.com/documentation/
 - Tenable Nessus Documentation: https://docs.tenable.com/nessus/
+- Tenable Nessus Credentialed Checks: https://docs.tenable.com/nessus/10_10/Content/NessusCredentialedChecks.htm
+- Tenable Scan Tuning Credentials Configuration: https://docs.tenable.com/quick-reference/vulnerability-management-scan-tuning/Content/VM-Scan-Tuning/CredentialsConfiguration.htm
+- Qualys Authentication Status QIDs: https://docs.qualys.com/en/vm/latest/authentication/auth_stat_qids.htm
 - Rapid7 InsightVM Documentation: https://docs.rapid7.com/insightvm/
+- Rapid7 InsightVM Scan Credentials: https://docs.rapid7.com/insightvm/configuring-scan-credentials/
 - Greenbone/OpenVAS: https://greenbone.github.io/docs/
 - Trivy: https://aquasecurity.github.io/trivy/
 - Grype: https://github.com/anchore/grype
