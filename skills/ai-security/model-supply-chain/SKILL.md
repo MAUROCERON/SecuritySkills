@@ -116,6 +116,12 @@ Grep: "revision=|commit_hash|model_version" in **/*.{py,yaml,yml,json}
 Glob: **/*.{pt,bin,safetensors,pkl,onnx,pb,h5,gguf,ggml}
 Glob: **/model_config.json
 Glob: **/config.json
+
+# Check ONNX bundle and runtime evidence
+Grep: "onnx.load|InferenceSession|onnxruntime|providers=|set_providers|external_data|convert_model_to_external_data" in **/*.{py,yaml,yml,json}
+Glob: **/*.{onnx,ort}
+Glob: **/*.onnx.data
+Glob: **/external_data.json
 ```
 
 **Real-world case -- PoisonGPT (Mithril Security, 2023):** Researchers at Mithril Security demonstrated that a model on Hugging Face Hub could be surgically modified to spread targeted misinformation while maintaining normal performance on standard benchmarks. They took GPT-J-6B, used the ROME (Rank-One Model Editing) technique to alter specific factual associations, and uploaded the modified model under a name resembling a legitimate organization. Users downloading the model by name would receive the poisoned version with no indication of tampering. The attack succeeded because Hugging Face Hub at the time did not enforce model signing, and most download code did not verify checksums against a trusted source. This demonstrated that model provenance verification is not optional -- it is the first line of defense against supply chain compromise.
@@ -130,6 +136,31 @@ Glob: **/config.json
 | Model pulled from unverified third-party source (not the original publisher) | High |
 | No model card or provenance documentation available | Medium |
 | Checksums verified but against values stored in the same repository as the model (self-referential) | Medium |
+
+#### ONNX External Data and Runtime Provider Evidence Gate
+
+When a model is loaded or served as ONNX/ORT, treat the deployable unit as the complete model bundle plus the runtime policy, not only the `.onnx` protobuf file.
+
+**Required evidence:**
+
+- Complete ONNX bundle manifest: `.onnx` or `.ort` file, every external tensor/data file, relative location, byte size, digest, storage path, and release artifact identifier.
+- External-data path containment: evidence that `external_data` locations are relative to the approved model directory, normalized, and checked for traversal, symlink, hardlink, junction, or overwrite behavior before loading or saving.
+- Conversion provenance: source model revision, converter/tool version, ONNX opset, dynamic-axis settings, custom operator list, preprocessing/postprocessing contract, and parity test results against the source model on a representative validation set.
+- Runtime provider policy: configured ONNX Runtime providers in priority order, allowed execution providers, whether CPU/provider fallback is allowed, fallback alerting, provider package/source, and custom execution-provider or custom-op provenance.
+- Production validation: safe-environment load test for untrusted models, resource-limit test for memory/compute blowups, and runtime evidence showing which providers executed the graph or subgraphs.
+
+**Finding guidance:**
+
+| Condition | Severity |
+|---|---|
+| Only the `.onnx` file is hashed while external tensor files are mutable or untracked | High |
+| External-data locations can resolve outside the approved model directory or through symlink/hardlink/junction paths | High |
+| Converted ONNX artifact lacks source model revision, opset, converter version, or parity validation | Medium |
+| Production runtime silently falls back to an unapproved provider or CPU without alerting or resource limits | Medium |
+| Custom ops or execution providers are loaded without package provenance, signature/digest, or version pinning | High |
+| External-data or provider behavior cannot be inspected from available evidence | Not Evaluable -- request bundle manifest and runtime provider logs before clearing the artifact |
+
+> **Gate:** Do not mark ONNX model integrity as complete unless the full bundle and effective runtime provider behavior are evidenced. A valid checksum on the top-level `.onnx` file alone is insufficient for large external-data models.
 
 ---
 
@@ -382,6 +413,12 @@ Assess whether architectural and procedural controls exist to detect model backd
 |---|---|---|---|---|---|
 | [name] | [source] | [format] | [Yes/No] | [Yes/No] | [Complete/Partial/Missing] |
 
+## ONNX Bundle and Runtime Evidence
+
+| Model | Bundle Digest Scope | External Data Bound | Conversion Evidence | Runtime Providers | Fallback Policy | Custom Ops/EP Provenance | Status |
+|---|---|---|---|---|---|---|---|
+| [name] | [.onnx only / full bundle / missing] | [Yes/No/N/A] | [Complete/Partial/Missing] | [provider order] | [Denied/Allowed/Unknown] | [Complete/Partial/Missing/N/A] | [Pass/Fail/Not Evaluable] |
+
 ## Findings
 
 ### Finding [N]: [Title]
@@ -441,6 +478,8 @@ Assess whether architectural and procedural controls exist to detect model backd
 
 5. **Evaluating models only on benchmarks.** Standard benchmarks measure general capability, not supply chain integrity. A backdoored model will perform normally on benchmarks by design. Behavioral differential testing with curated, domain-specific test sets that probe for targeted manipulation is required to surface backdoors.
 
+6. **Hashing only the ONNX wrapper.** Large ONNX models can keep tensors in external files. If the release evidence hashes only `model.onnx`, reviewers may miss replaced weights, unsafe external-data paths, or provider-specific runtime behavior that changes the effective deployed model.
+
 ---
 
 ## References
@@ -454,5 +493,9 @@ Assess whether architectural and procedural controls exist to detect model backd
 - Gu, T. et al. "BadNets: Identifying Vulnerabilities in the Machine Learning Model Supply Chain" (2017) -- arXiv:1708.06733
 - Hubinger, E. et al. "Sleeper Agents: Training Deceptive LLMs that Persist Through Safety Training" (2024) -- arXiv:2401.05566
 - Hugging Face. "Safetensors: A Simple and Safe Serialization Format" -- https://huggingface.co/docs/safetensors
+- ONNX External Data Security -- https://onnx.ai/onnx/repo-docs/Security.html
+- ONNX External Data -- https://onnx.ai/onnx/repo-docs/ExternalData.html
+- ONNX Runtime Documentation -- https://onnxruntime.ai/docs/
+- ONNX Runtime Execution Providers -- https://onnxruntime.ai/docs/execution-providers/
 - NIST AI Risk Management Framework 1.0 -- https://www.nist.gov/aiframework
 - Open Source Security Foundation (OpenSSF) -- https://openssf.org
