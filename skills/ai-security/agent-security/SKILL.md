@@ -14,7 +14,7 @@ phase: [design, build, review]
 frameworks: [OWASP-Agentic-AI, NIST-AI-RMF-1.0]
 difficulty: advanced
 time_estimate: "60-120min"
-version: "1.0.2"
+version: "1.0.3"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -205,6 +205,49 @@ Evaluate whether the agent architecture is designed from the ground up around le
 | No token budget or execution time limit enforced | High |
 | Agent can query any database table regardless of task scope | Medium |
 | No resource limits at container/infrastructure level | Medium |
+
+#### Browser Agent and UI Automation Boundary
+
+Browser-control agents need an additional evidence gate because UI automation can inherit ambient web authority even when the agent has no explicit API tool for that site. Treat the browser as a high-impact tool boundary when the agent can navigate authenticated sessions, inspect page content, submit forms, download files, upload local files, or grant browser permissions.
+
+**What to look for in browser-agent code and configuration:**
+
+- **Browser context isolation:** Does the agent use an ephemeral context, a dedicated service-account profile, or a human user's persistent browser profile?
+- **Session storage lifetime:** Are cookies, local storage, IndexedDB, and Playwright/Selenium storage state discarded after the task or retained across sessions?
+- **Origin and navigation scope:** Are allowed origins or domains constrained, or can the agent browse arbitrary authenticated sites once a session exists?
+- **Browser permissions:** Are clipboard, geolocation, camera, microphone, notification, and download permissions denied by default and granted only when justified?
+- **Model-ingestion redaction:** Are DOM text, accessibility trees, screenshots, console logs, network traces, and browser traces redacted before model ingestion and before audit persistence?
+- **Download and upload controls:** Are downloads quarantined and validated before workspace access? Does uploading or attaching local files require explicit approval?
+- **Extension and password-manager exposure:** Can the agent interact with installed extensions, password managers, autofill, or browser-managed credentials?
+- **High-impact clicks:** Do form submissions for payments, account settings, OAuth consent, deletion, transfers, or public posts require fail-closed approval?
+
+**Detection methods:** Search for browser automation and context code (`chromium.launchPersistentContext`, `userDataDir`, `storageState`, `newContext`, `grantPermissions`, `clipboard-read`, `acceptDownloads`, `download.saveAs`, `setInputFiles`, `screenshot`, `accessibility.snapshot`, `innerText`, `evaluate`, `trace`, `recordVideo`, `cookies`, `localStorage`, `indexedDB`).
+
+**Browser-agent evidence checklist:**
+
+| Evidence Area | Desired State | Common Violation |
+|---|---|---|
+| Browser profile | Ephemeral or dedicated service-account profile | Human user's persistent profile reused |
+| Session storage | Discarded after task or explicitly scoped | Cookies/local storage retained without owner or expiry |
+| Origin scope | Allowlisted domains tied to task | Arbitrary browsing with authenticated sessions |
+| Browser permissions | Denied by default, justified per task | Clipboard/geolocation/downloads granted globally |
+| DOM/screenshots/traces | Redacted before model and log persistence | Hidden inputs, tokens, PII, or card data sent to model/logs |
+| Downloads | Quarantine, canonicalize, validate, scan if needed | Untrusted downloads saved directly into workspace |
+| Uploads | Explicit approval and path allowlist | Agent can attach any local file to a web form |
+| High-impact UI actions | Fail-closed approval before submission/click | Agent can click Buy/Transfer/Delete/Consent without review |
+
+**What constitutes a finding:**
+
+| Condition | Severity |
+|---|---|
+| Agent runs in a human user's persistent browser profile and can submit authenticated forms without approval | Critical |
+| Browser DOM, screenshots, clipboard, or traces containing secrets/PII are sent to the model or retained unredacted | Critical |
+| Agent can upload arbitrary local files through browser file inputs | Critical |
+| Persistent service-account browser profile lacks origin allowlists or storage-state ownership/expiry | High |
+| Browser downloads from untrusted pages are saved directly into the workspace without quarantine or validation | High |
+| Clipboard, geolocation, camera, microphone, or extension access is granted globally without task justification | High |
+| Browser traces or screenshots are retained without retention limits or access controls | Medium |
+| Ephemeral unauthenticated browsing is controlled, but storage-state or permission evidence is not documented | Low |
 
 ---
 
@@ -492,13 +535,19 @@ Glob: **/security_architecture*
 |---|---|---|---|---|---|
 | [name] | [purpose] | [tool list] | [credential type] | [Yes/No, which actions] | [trust level] |
 
+## Browser Agent Evidence
+
+| Agent | Browser Context | Session Storage | Origin Scope | Permissions | Redaction | Downloads/Uploads | High-Impact UI Gates |
+|---|---|---|---|---|---|---|---|
+| [name or N/A] | [ephemeral / service-account profile / human profile] | [discarded / scoped / persistent] | [allowlist] | [clipboard/download/etc.] | [DOM/screenshot/trace controls] | [quarantine/approval] | [payment/delete/OAuth/etc.] |
+
 ## Architecture Diagram Annotations
 [Notes on trust boundaries, data flows, and security control placement annotating the existing architecture diagram, or a text-based representation if no diagram exists]
 
 ## Findings
 
 ### Finding [N]: [Title]
-- **Review Area:** [Permission Model | Least Privilege | HITL Gates | Blast Radius | Audit Trail | Rollback | Multi-Agent Trust]
+- **Review Area:** [Permission Model | Least Privilege | Browser Agent Boundary | HITL Gates | Blast Radius | Audit Trail | Rollback | Multi-Agent Trust]
 - **Severity:** [Critical | High | Medium | Low | Informational]
 - **OWASP Agentic AI Category:** [AG01-AG10 or N/A]
 - **NIST AI RMF Function:** [GOVERN | MAP | MEASURE | MANAGE] [subcategory]
@@ -515,6 +564,7 @@ Glob: **/security_architecture*
 |---|---|---|---|
 | Permission Model | [rating] | [one-line summary] | [priority] |
 | Least-Privilege Design | [rating] | [one-line summary] | [priority] |
+| Browser Agent Boundary | [rating] | [one-line summary or N/A] | [priority] |
 | HITL Gate Placement | [rating] | [one-line summary] | [priority] |
 | Blast Radius Containment | [rating] | [one-line summary] | [priority] |
 | Audit Trail Completeness | [rating] | [one-line summary] | [priority] |
@@ -542,6 +592,8 @@ Glob: **/security_architecture*
 | OWASP Agentic AI Threats | AG05 | Trust Boundary Violations -- implicit trust between agents exploited for lateral movement |
 | OWASP Agentic AI Threats | AG06 | Data Exfiltration via Tool Calls -- legitimate tool access used to transmit data to attacker |
 | OWASP Agentic AI Threats | AG08 | Human-in-the-Loop Bypass -- approval gates circumvented through workflow exploitation |
+| OWASP Agentic Skills Top 10 | AST03 | Excessive Permissions -- agentic skills or browser actions can access more data/actions than needed |
+| OWASP Agentic Skills Top 10 | AST04 | Data Exfiltration -- agentic behavior leaks private data through tool, browser, or log channels |
 | NIST AI RMF 1.0 | GOVERN 1.2 | Roles, responsibilities, and authorities for AI risk management |
 | NIST AI RMF 1.0 | GOVERN 1.4 | Risk management processes established and integrated |
 | NIST AI RMF 1.0 | MAP 3.5 | Impact assessment for AI system capabilities and limitations |
@@ -569,6 +621,8 @@ Glob: **/security_architecture*
 
 5. **Assuming rollback is someone else's problem.** Agent developers frequently rely on downstream systems (databases, deployment platforms, email providers) to handle rollback without verifying that rollback mechanisms actually exist and work. A database transaction can be rolled back, but only if the agent's actions are wrapped in a transaction. An email cannot be recalled. A deployed binary cannot be un-deployed if the deployment pipeline has no rollback. For every tool an agent can invoke, the architecture must document the rollback mechanism and test it.
 
+6. **Treating browser automation as low-risk browsing.** A browser agent can inherit cookies, local storage, password-manager state, extensions, clipboard data, downloads, and authenticated form access. Review browser profile ownership, session lifetime, origin scope, permission grants, DOM/screenshot redaction, download quarantine, local-file upload controls, and high-impact click approvals before rating the browser tool as low risk.
+
 ---
 
 ## References
@@ -587,3 +641,5 @@ Glob: **/security_architecture*
 12. Sequential Tool Attack Chains and Context Amnesia in Agentic AI (2026) -- arXiv:2603.12644
 13. Confused-Deputy Attacks and Cascading Failures in Long-Horizon Agent Workflows (2026) -- arXiv:2603.12230
 14. fabraix/playground -- Open-source AI agent red-team exploit library for validating agent permission boundaries and tool-use attack surface -- https://github.com/fabraix/playground
+15. OWASP Agentic Skills Top 10 -- https://owasp.org/www-project-agentic-skills-top-10/
+16. Playwright BrowserContext API -- browser contexts, permissions, storage state, downloads, and tracing -- https://playwright.dev/docs/api/class-browsercontext
