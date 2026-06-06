@@ -58,6 +58,7 @@ Before conducting the PIR, gather or confirm:
 - [ ] **Existing controls** -- Documentation of security controls that were in place at the time of the incident (detection rules, access controls, network segmentation, patching cadence).
 - [ ] **Previous PIR reports** -- Any prior post-incident reviews for similar incident types, to identify recurring patterns.
 - [ ] **Metrics data** -- Timestamps needed to compute MTTD, MTTR, and MTTC (see Step 4).
+- [ ] **Remediation verification evidence** -- Retest results, configuration evidence, detection validation, alert routing proof, recurrence monitoring status, overdue remediation exceptions, and risk acceptance records for each action item.
 
 ---
 
@@ -280,15 +281,47 @@ Convert analysis findings into specific, measurable, assignable, and time-bound 
 | P2 | Moderate gap that represents a defense-in-depth weakness | 90 days |
 | P3 | Minor improvement or best-practice enhancement | Next quarter |
 
+### Step 6.1: Remediation Verification and Recurrence Monitoring
+
+Do not treat a closed ticket as proof that the root cause or contributing control failure has been fixed. Each remediation item needs acceptance criteria, independent verification evidence, and post-closure monitoring tied back to the incident timeline and root cause.
+
+**Required verification evidence:**
+
+| Remediation Type | Required evidence before closure | Finding if missing |
+|------------------|----------------------------------|--------------------|
+| Preventive control | Configuration snapshot, policy/rule diff, independent retest, compensating-control evidence | Ticket closure does not prove recurrence is blocked |
+| Detective control | Test event, alert fired timestamp, rule/playbook version, alert owner, routing/escalation outcome | New detection may not alert analysts |
+| Corrective/recovery control | Restore/rebuild proof, backup integrity result, rollback test, recovery runbook update | Recovery claim may fail during the next incident |
+| Process/training control | Updated procedure, participant list, exercise or tabletop result, retraining completion | Human/process gap remains untested |
+| Long-running action | Interim risk acceptance, deadline extension approval, compensating control, escalation owner | "In progress" status can hide unmitigated risk |
+
+**Verification checklist:**
+
+- [ ] Every remediation has explicit acceptance criteria before work starts.
+- [ ] Evidence is tied to the incident root cause, affected asset class, and control failure mapping.
+- [ ] Verification is performed or approved by someone other than the action owner when feasible.
+- [ ] Detection changes include a test event, alert routing result, analyst queue/owner confirmation, and playbook linkage.
+- [ ] Preventive changes include a retest or control validation result, not only a change ticket.
+- [ ] Closure records include the evidence location, verifier, date, result, and residual risk.
+- [ ] Recurrence monitoring has a defined watch period, success criteria, failure criteria, and escalation path.
+- [ ] Overdue actions have documented escalation or formal risk acceptance before the PIR is marked complete.
+
+**Severity calibration:**
+
+- Treat a root-cause remediation closed without retest or control evidence as **P1 High**, or **P0 Critical** when the original exploitation path remains externally reachable.
+- Treat a new detection rule with no test event or routing proof as **P1 High** for incidents where delayed detection increased impact.
+- Treat missing recurrence monitoring as **P2 Medium** unless the incident is repeating, high-impact, or tied to regulated reporting commitments.
+- Treat overdue remediation without risk acceptance as the same severity as the underlying unresolved control failure.
+
 ---
 
 ## 4. Findings Classification
 
 | Severity | Label | Definition | PIR Action |
 |----------|-------|------------|-----------|
-| P0 | Critical | Root cause that directly enabled the incident and remains exploitable. Immediate remediation required to prevent recurrence. | Remediation tracked as P0 with 7-day deadline. Executive visibility. |
-| P1 | High | Significant contributing factor that amplified impact or delayed response. | Remediation tracked as P1 with 30-day deadline. |
-| P2 | Medium | Defense-in-depth gap or process improvement that would reduce future incident likelihood or impact. | Remediation tracked as P2 with 90-day deadline. |
+| P0 | Critical | Root cause that directly enabled the incident and remains exploitable, or a P0 remediation was closed without evidence while the exploitation path remains reachable. Immediate remediation required to prevent recurrence. | Remediation tracked as P0 with 7-day deadline. Executive visibility. |
+| P1 | High | Significant contributing factor that amplified impact or delayed response, including root-cause remediation closed without retest/control evidence. | Remediation tracked as P1 with 30-day deadline. |
+| P2 | Medium | Defense-in-depth gap, recurrence monitoring gap, or process improvement that would reduce future incident likelihood or impact. | Remediation tracked as P2 with 90-day deadline. |
 | P3 | Low | Minor improvement opportunity or best-practice recommendation. | Backlog item for next planning cycle. |
 | P4 | Informational | Observation or context that does not require action but should be documented for organizational awareness. | Documented in PIR report. No remediation required. |
 
@@ -354,9 +387,19 @@ root cause, and the number/priority of remediation actions identified.]
 - [Gap or failure identified during retrospective]
 
 ### Remediation Plan
-| ID | Finding | Action | Owner | Priority | Deadline | Ticket |
+| ID | Finding | Action | Owner | Priority | Deadline | Ticket | Acceptance Criteria |
+|---|---|---|---|---|---|---|---|
+| REM-001 | [Finding] | [Action] | [Owner] | [P0-P3] | [Date] | [ID] | [Evidence required before closure] |
+
+### Remediation Verification
+| ID | Verification Type | Evidence | Verifier | Result | Residual Risk | Closure Decision |
 |---|---|---|---|---|---|---|
-| REM-001 | [Finding] | [Action] | [Owner] | [P0-P3] | [Date] | [ID] |
+| REM-001 | [Retest / detection validation / recovery test / process exercise] | [Evidence location] | [Name/team] | [Passed/Failed/Not Evaluable] | [Risk] | [Closed / keep open / risk accepted] |
+
+### Recurrence Monitoring
+| Watch Item | Monitoring Period | Success Criteria | Failure Criteria | Owner | Status |
+|---|---|---|---|---|---|
+| [Root-cause recurrence indicator] | [Start-end dates] | [No recurrence / alerts routed] | [Repeat event / missed alert] | [Owner] | [Active / Complete / Failed] |
 
 ### Follow-Up Schedule
 - **Remediation Review Date:** [YYYY-MM-DD -- typically 30 days after PIR]
@@ -420,6 +463,10 @@ Documenting lessons learned and remediation actions in a PIR report that is then
 
 NIST recommends conducting the PIR within several days of incident closure. Waiting weeks or months causes participants to forget critical details, misremember the sequence of events, and lose the emotional context that drives honest reflection. Schedule the PIR meeting before the incident is closed, ideally within 3-5 business days of recovery completion.
 
+### Pitfall 6: Closing Remediation Tickets Without Verifying the Control
+
+Ticket status is administrative evidence, not security evidence. A closed remediation item must still prove that the preventive, detective, corrective, or process control now works. Require retest results, detection validation, alert routing proof, recurrence monitoring, and risk acceptance for exceptions before marking the PIR follow-up complete.
+
 ---
 
 ## 8. Prompt Injection Safety Notice
@@ -445,3 +492,4 @@ This skill processes incident response data including timelines, forensic findin
 7. **SANS Incident Handler's Handbook -- Lessons Learned Phase** -- https://www.sans.org/white-papers/33901/
 8. **ISO/IEC 27035-2:2023** -- Information Security Incident Management -- Part 2: Guidelines to Plan and Prepare for Incident Response -- https://www.iso.org/standard/78974.html
 9. **VERIS (Vocabulary for Event Recording and Incident Sharing)** -- http://veriscommunity.net/
+10. **NIST SP 800-61 Rev 3** -- Incident Response Recommendations and Considerations for Cybersecurity Risk Management: A CSF 2.0 Community Profile -- https://csrc.nist.gov/pubs/sp/800/61/r3/final
