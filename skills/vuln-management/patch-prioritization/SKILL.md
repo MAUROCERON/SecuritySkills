@@ -4,7 +4,8 @@ description: >
   Prioritizes patches and manages remediation SLAs using SSVC 2.1 decision
   outcomes, EPSS v3 trend analysis, and CISA KEV catalog cross-referencing.
   Covers SLA frameworks by severity tier, compensating controls assessment,
-  patch window scheduling, risk acceptance criteria, and exception management.
+  patch window scheduling, post-remediation validity, risk acceptance criteria,
+  and exception management.
   Auto-invoked when users ask about patch scheduling, SLA compliance, risk
   exceptions, or remediation backlogs.
 tags: [vuln-management, patching, sla]
@@ -13,7 +14,7 @@ phase: [operate]
 frameworks: [SSVC-2.1, EPSS-v3, CISA-KEV]
 difficulty: intermediate
 time_estimate: "20-40min"
-version: "1.0.0"
+version: "1.0.1"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -48,6 +49,7 @@ Before starting, collect or confirm:
 - [ ] **Current SLA assignments:** Existing SLA tiers and deadlines for each finding, if previously triaged
 - [ ] **Asset inventory context:** Business criticality, exposure (internet-facing, internal, air-gapped), owner, and environment (production, staging, dev) for affected systems
 - [ ] **Patch availability:** Whether vendor patches, hotfixes, or workarounds exist for each CVE
+- [ ] **Remediation evidence:** Current vendor-recommended fixed version, observed running version, package inventory timestamp, scanner last-seen time, restart/reboot status, rollout percentage, and rollback status
 - [ ] **Change management constraints:** Maintenance windows, freeze periods, change advisory board (CAB) schedules
 - [ ] **Compensating controls inventory:** WAF rules, network segmentation, EDR policies, disabled features currently in place
 - [ ] **Compliance mandates:** Applicable regulatory requirements (CISA BOD 22-01, PCI DSS 4.0 Requirement 6.3.3, HIPAA, FedRAMP)
@@ -82,6 +84,7 @@ Vulnerability Inventory Entry:
 - CISA KEV:            [Yes | No]
 - SSVC Decision:       [Immediate | Out-of-Cycle | Scheduled | Defer]
 - Patch Available:     [Yes (version) | No | Workaround Only]
+- Remediation State:   [Not Started | Scheduled | Deployed | Verified | Failed | Rolled Back | Withdrawn/Superseded]
 - Current SLA:         [Tier and deadline]
 - SLA Status:          [Within SLA | At Risk | Breached]
 ```
@@ -210,7 +213,53 @@ Patch Schedule Entry:
 - Days Remaining:      [N days]
 ```
 
-### Step 6: Risk Acceptance and Exception Management
+### Step 6: Post-Remediation Validity Check
+
+Do not reduce urgency, close a finding, or grant an SLA extension solely because
+a patch was scheduled, a change ticket was marked complete, or a scanner finding
+closed. Validate that the remediation actually reduced risk on the affected
+asset and that the fix remains the current vendor-recommended path.
+
+**Framework mapping:** NIST SP 800-40 Rev. 4 (enterprise patch management), NIST SP 800-53 SI-2 (Flaw Remediation), CSAF product status and remediation metadata
+
+For each finding marked complete or ready to leave an urgent SLA tier, collect:
+
+1. **Current vendor recommendation:** Advisory, CSAF/VEX, release notes, or vendor bulletin showing the patch/hotfix is not withdrawn, superseded, or limited to a partial mitigation.
+2. **Observed running version:** Runtime package/application/firmware/kernel version from the asset after deployment, not only a planned patch version.
+3. **Fresh inventory evidence:** Scanner/plugin result, package inventory, EDR/agent telemetry, or configuration-management data collected after the patch window and after any required restart.
+4. **Restart/reboot and health evidence:** Service restart, host reboot, container rollout, or application health checks needed for the fixed code to be active.
+5. **Rollout coverage:** Percentage and list of affected assets remediated, including blue/green, canary, autoscaling, offline, and rollback groups.
+6. **Rollback status:** Whether deployment automation, SRE health checks, or emergency change rollback reverted any portion of the fix.
+7. **Contradiction handling:** If ticket status, scanner status, inventory, and runtime version disagree, keep the original SLA clock open and mark the finding Not Verified.
+
+#### Remediation State Calibration
+
+| Condition | Required Action |
+|---|---|
+| Vendor patch is withdrawn, superseded, or replaced by a later fixed version | Keep SLA open; update target patch version and reassess schedule |
+| Change ticket is complete but running version remains vulnerable | Mark remediation failed; keep original SLA tier and deadline |
+| Scanner closed the finding but agent data predates the patch window or reboot | Mark Not Verified; require fresh post-change evidence |
+| Patch deployed to only part of the affected fleet | Track partial rollout; keep residual assets in SLA dashboard |
+| Health checks or automation rolled back the deployment | Mark Rolled Back; require new remediation plan or exception |
+| Fixed version is active, inventory is fresh, no rollback occurred, and all affected assets are covered | Mark Verified; finding may leave active remediation queue |
+
+```
+Remediation Validity Entry:
+- CVE ID:                   [CVE-YYYY-NNNNN]
+- Target System(s):         [Hostname(s) / application(s)]
+- Vendor Recommended Fix:   [Version / KB / advisory URL / CSAF product status]
+- Patch Superseded/Withdrawn: [No | Yes (details) | Not Evaluable]
+- Change Ticket Status:     [Pending | Complete | Failed | Rolled Back]
+- Observed Running Version: [Version observed after deployment]
+- Inventory Evidence:       [Scanner/plugin/package source and timestamp]
+- Required Restart/Reboot:  [Not Required | Completed | Pending | Failed]
+- Rollout Coverage:         [N of M assets / percentage]
+- Rollback Status:          [None | Partial | Full | Unknown]
+- Verification Result:      [Verified | Not Verified | Failed | Rolled Back]
+- SLA Impact:               [Close | Keep Original SLA | Reopen | Exception Required]
+```
+
+### Step 7: Risk Acceptance and Exception Management
 
 For vulnerabilities that cannot be remediated within the SLA, document a formal risk acceptance or exception.
 
@@ -266,8 +315,8 @@ Classify the overall patch posture into one of the following states:
 |---|---|---|
 | **Critical Backlog** | Remediation backlog poses imminent organizational risk | Any P0/P1 findings past SLA OR >= 10 P2 findings past SLA |
 | **Elevated Risk** | Remediation backlog exceeds acceptable thresholds | Any P2 findings past SLA OR >= 20% of P3 findings past SLA |
-| **On Track** | Remediation is proceeding within SLA for all tiers | No findings past SLA; all P0/P1 addressed or in active remediation |
-| **Healthy** | Minimal outstanding findings; strong patch posture | No P0-P2 findings open; P3/P4 within SLA; exception rate < 5% |
+| **On Track** | Remediation is proceeding within SLA for all tiers | No findings past SLA; all P0/P1 addressed or in active remediation with no contradictory remediation-validity evidence |
+| **Healthy** | Minimal outstanding findings; strong patch posture | No P0-P2 findings open; P3/P4 within SLA; exception rate < 5%; completed remediations have fresh verification evidence |
 
 ---
 
@@ -278,7 +327,7 @@ Produce a structured report with these exact sections:
 ```markdown
 ## Patch Prioritization Report
 **Date:** [YYYY-MM-DD]
-**Skill:** patch-prioritization v1.0.0
+**Skill:** patch-prioritization v1.0.1
 **Frameworks:** SSVC 2.1, EPSS v3, CISA KEV
 **Reviewer:** AI-assisted (human review required for P0/P1 actions and risk acceptances)
 
@@ -312,6 +361,13 @@ findings requiring immediate action.]
 | Priority | CVE ID(s) | Target System | Patch | Scheduled Window | SLA Deadline | Status |
 |---|---|---|---|---|---|---|
 | P0 | [CVE-ID] | [system] | [version] | [date/time] | [date] | [Scheduled/Pending/Complete] |
+
+### Remediation Validity Checks
+[List findings where remediation is claimed, completed, failed, rolled back, stale, or contradictory]
+
+| CVE ID | Target System | Vendor Fix Current? | Running Version | Evidence Fresh? | Rollout | Verification Result |
+|---|---|---|---|---|---|---|
+| [CVE-ID] | [system] | [Yes/No/Not Evaluable] | [version] | [Yes/No] | [N/M] | [Verified/Not Verified/Failed/Rolled Back] |
 
 ### Compensating Controls in Effect
 [List all active compensating controls with effectiveness ratings]
@@ -374,6 +430,8 @@ Known Exploited Vulnerabilities catalog maintained by CISA. Contains CVEs with c
 
 5. **Scheduling patches without rollback plans.** Patch deployment failures without rollback procedures cause unplanned outages that erode trust in the patching program. Every patch window must include a validated rollback procedure, tested in a non-production environment where possible.
 
+6. **Treating scanner closure or a completed change ticket as proof of remediation.** Scanners can close findings from stale agent data, and change systems can mark a deployment complete even when services failed to restart or automation rolled back. Require current vendor-fix status, observed running version, fresh inventory, and rollout evidence before closing risk.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -396,7 +454,9 @@ Known Exploited Vulnerabilities catalog maintained by CISA. Contains CVEs with c
 - CISA KEV Catalog: https://www.cisa.gov/known-exploited-vulnerabilities-catalog
 - CISA BOD 22-01: https://www.cisa.gov/binding-operational-directive-22-01
 - NIST SP 800-39 (Risk Management): https://csrc.nist.gov/publications/detail/sp/800-39/final
+- NIST SP 800-40 Rev. 4 (Enterprise Patch Management Planning): https://csrc.nist.gov/pubs/sp/800/40/r4/final
 - NIST SP 800-53 Rev. 5 (SI-2 Flaw Remediation): https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final
+- OASIS CSAF 2.0: https://docs.oasis-open.org/csaf/csaf/v2.0/csaf-v2.0.html
 - ISO 27005:2022 (Risk Treatment): https://www.iso.org/standard/80585.html
 - PCI DSS 4.0 Requirement 6.3.3: https://www.pcisecuritystandards.org/
 - ITIL 4 Change Enablement: https://www.axelos.com/certifications/itil-service-management
