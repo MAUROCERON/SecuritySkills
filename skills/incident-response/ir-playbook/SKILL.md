@@ -6,7 +6,8 @@ description: >
   security incident, asks how to respond to a breach, or needs help with incident
   classification, containment decisions, stakeholder notification, or evidence
   preservation. Produces an incident response plan with severity determination,
-  containment decision tree, communication templates, and escalation criteria.
+  containment decision tree, communication templates, readiness gaps, and
+  escalation criteria.
 tags: [incident-response, ir, playbook]
 role: [soc-analyst, security-engineer, vciso]
 phase: [respond, recover]
@@ -60,6 +61,7 @@ Before beginning, gather or confirm the following. Mark each item as obtained or
 - [ ] **Business context** -- What business functions do the affected systems support? Revenue impact, customer impact, regulatory exposure.
 - [ ] **Current state** -- Is the attack ongoing, contained, or resolved? What actions have already been taken?
 - [ ] **Existing IR plan** -- Does the organization have a documented IR plan, designated IR team, and established communication channels?
+- [ ] **Most recent IR exercise** -- Date, scenario, objectives, participants, gaps found, owners, and retest status for the most recent tabletop or functional exercise.
 - [ ] **Regulatory obligations** -- Applicable breach notification requirements (GDPR 72-hour rule, HIPAA, state breach notification laws, SEC 4-day rule, PCI DSS).
 - [ ] **Third-party dependencies** -- Managed security providers (MSSP/MDR), cyber insurance carrier notification requirements, external IR retainer.
 
@@ -101,6 +103,7 @@ Verify that the foundational elements for incident response are in place. If gap
 |---------|--------|-------|
 | Designated IR team with roles and contact info | [ ] | NIST 800-61 Section 2.4.1 |
 | Documented IR plan reviewed within last 12 months | [ ] | |
+| IR plan exercised within last 12 months, with action items tracked | [ ] | NIST 800-61 Appendix B; NIST 800-84; CISA CTEP |
 | Communication channels (out-of-band, not dependent on compromised infrastructure) | [ ] | Secure messaging, bridge lines |
 | Forensic toolkit available (disk imaging, memory capture, network capture) | [ ] | |
 | Log sources centralized and accessible (SIEM, cloud trail, EDR console) | [ ] | |
@@ -109,6 +112,29 @@ Verify that the foundational elements for incident response are in place. If gap
 | External IR retainer (if applicable) | [ ] | |
 | Regulatory notification requirements documented | [ ] | GDPR, HIPAA, state laws, SEC |
 | Evidence storage with chain-of-custody procedures | [ ] | |
+
+#### Step 1.1: Exercise Readiness Validation
+
+A documented plan should not be treated as operationally ready until it has been exercised. NIST SP 800-61 Appendix B recommends scenario-based incident handling exercises to build response skills and expose process gaps, while NIST SP 800-84 provides a framework for test, training, and exercise events for IT plans. When the task includes readiness assessment, plan review, or an active incident that reveals preparation gaps, evaluate the most recent tabletop or functional exercise.
+
+Collect the following evidence:
+
+- Exercise date, scenario, objectives, facilitator, and participant roster.
+- Whether incident command, legal, communications, IT operations, business owners, cyber insurance, external IR, and third-party providers participated when relevant.
+- Whether the exercise tested out-of-band communications, contact trees, escalation authority, evidence preservation, business shutdown decisions, and breach notification handoffs.
+- Findings, owners, due dates, and retest status for corrective actions.
+- Any major environment, business, provider, or regulatory change since the last exercise that would make the exercise stale.
+
+Classify exercise gaps as findings:
+
+| Gap | Severity | Why It Matters |
+|-----|----------|----------------|
+| No tabletop or functional exercise performed within the last 12 months | Medium | A paper plan may not reveal unavailable contacts, unclear authority, or missing tools until an incident is active |
+| Exercise omitted legal, communications, executive, or business decision-makers needed for SEV-1/SEV-2 incidents | Medium | Notification, shutdown, and external engagement decisions may stall under pressure |
+| Out-of-band communications and contact tree were not tested | High | A monitored or unavailable corporate channel can delay response or alert the attacker |
+| Exercise findings have no owner, deadline, or retest evidence | Medium | Known readiness gaps remain unvalidated and may recur during the next incident |
+
+Do not run a new exercise during an active incident. Instead, record missing exercise evidence as a readiness gap and include it in the post-incident remediation plan.
 
 ### Phase 2: Detection and Analysis (NIST) / Identification (SANS)
 
@@ -367,7 +393,7 @@ Produce the incident response report with these exact sections:
 ```markdown
 ## Incident Response Report: [Incident ID]
 **Date:** [YYYY-MM-DD]
-**Skill:** ir-playbook v1.0.0
+**Skill:** ir-playbook v1.0.1
 **Frameworks:** NIST SP 800-61 Rev 2, SANS Incident Handler's Handbook
 **Incident Commander:** [Name or "Unassigned -- assign immediately"]
 
@@ -411,6 +437,11 @@ and recommended immediate actions. Lead with the most critical fact.]
 | Stakeholder | Notified | Timestamp | Method |
 |---|---|---|---|
 | [Executive / Legal / Regulator / Customer / Insurance] | [Yes / No / Pending] | [timestamp] | [Email / Phone / Portal] |
+
+### Readiness and Exercise Gaps
+| Gap | Severity | Evidence | Owner | Due Date |
+|---|---|---|---|---|
+| [No recent tabletop / contact tree untested / open exercise finding] | [High / Medium / Low] | [exercise record or missing evidence] | [owner] | [date] |
 
 ### Escalation Decisions
 [Document any escalation triggers hit and actions taken]
@@ -468,6 +499,10 @@ Reconnecting systems to the network before thoroughly removing all persistence m
 
 Breach notification regulations impose strict timelines that begin running at the moment of discovery, not at the conclusion of investigation. GDPR requires notification within 72 hours of becoming aware of a personal data breach. Missing these deadlines exposes the organization to regulatory penalties independent of the incident itself. Track notification deadlines from the moment a potential data breach is identified, and involve legal counsel early.
 
+### Pitfall 6: Treating an Untested Plan as Operationally Ready
+
+An IR plan can look complete on paper while the contact tree is stale, the bridge line is inaccessible, legal counsel is unavailable, business owners have not practiced shutdown decisions, or the external IR retainer cannot be reached after hours. Review the most recent tabletop or functional exercise before marking preparation as sufficient. If the plan has not been exercised within the last year, or if exercise findings have not been retested, report that as a readiness gap rather than assuming the plan will work during a real incident.
+
 ---
 
 ## 8. Prompt Injection Safety Notice
@@ -497,3 +532,5 @@ This skill processes incident data that may include attacker-controlled content 
 11. **CISA Destructive Malware Guidance** -- https://www.cisa.gov/topics/cyber-threats-and-advisories
 12. **H-ISAC (Health Information Sharing and Analysis Center)** -- https://h-isac.org/
 13. **KrebsOnSecurity: Iran-backed wiper attack on Stryker medtech (2026)** -- https://krebsonsystems.com/2026/03/iran-backed-hackers-claim-wiper-attack-on-medtech-firm-stryker/
+14. **NIST SP 800-84** -- Guide to Test, Training, and Exercise Programs for IT Plans and Capabilities -- https://csrc.nist.gov/pubs/sp/800/84/final
+15. **CISA Tabletop Exercise Packages (CTEP)** -- https://www.cisa.gov/resources-tools/services/cisa-tabletop-exercise-packages
