@@ -193,6 +193,8 @@ http:\/\/.*api|http:\/\/.*login|secure\s*:\s*false
 - Template injection — user input rendered directly into server-side templates (Jinja2, Thymeleaf, ERB, Twig).
 - NoSQL injection via query operator injection (`$gt`, `$ne`, `$regex` in MongoDB).
 - Header injection — user input placed into HTTP response headers without sanitization.
+- CSV/formula injection — exported spreadsheet cells begin with formula-control characters such as `=`, `+`, `-`, `@`, tabs, or carriage returns.
+- Download header injection — user-controlled export names are placed in `Content-Disposition` without CR/LF rejection, safe filename normalization, and RFC 6266-compatible encoding.
 
 **CWE Mappings:**
 
@@ -208,6 +210,8 @@ http:\/\/.*api|http:\/\/.*login|secure\s*:\s*false
 | CWE-89  | Improper Neutralization of Special Elements used in an SQL Command (SQL Injection) |
 | CWE-90  | Improper Neutralization of Special Elements used in an LDAP Query (LDAP Injection) |
 | CWE-94  | Improper Control of Generation of Code (Code Injection) |
+| CWE-113 | Improper Neutralization of CRLF Sequences in HTTP Headers |
+| CWE-1236 | Improper Neutralization of Formula Elements in a CSV File |
 | CWE-643 | Improper Neutralization of Data within XPath Expressions (XPath Injection) |
 | CWE-917 | Improper Neutralization of Special Elements used in an Expression Language Statement (EL Injection) |
 
@@ -224,6 +228,9 @@ innerHTML|\.html\(|dangerouslySetInnerHTML|v-html|\|safe|\|raw|render_template_s
 \$where|\$gt|\$ne|\$regex.*req\.|find\(.*req\.
 # Header injection
 setHeader\(.*req\.|res\.set\(.*req\.|response\.addHeader.*request\.getParameter
+# CSV/export formula injection
+text/csv|Content-Disposition|filename\*|csv\.writer|to_csv|json2csv|Papa\.unparse|xlsx|spreadsheet|export.*csv
+^[\"']?[=+\-@]|\\t|\\r
 ```
 
 **Mitigations:**
@@ -234,6 +241,8 @@ setHeader\(.*req\.|res\.set\(.*req\.|response\.addHeader.*request\.getParameter
 - Apply context-aware output encoding for XSS: HTML-encode for HTML body, attribute-encode for attributes, JS-encode for script contexts. Use frameworks' built-in auto-escaping.
 - Validate and sanitize all input on the server side; use allowlists over denylists.
 - Set `Content-Security-Policy` headers to mitigate XSS impact.
+- For CSV and spreadsheet exports, neutralize formula-leading cells, preserve data semantics, and test exports in the spreadsheet applications users actually open.
+- For downloads, generate filenames from server-side allowlisted characters, reject CR/LF and path separators, encode `filename*` correctly, and avoid reflecting raw user input into `Content-Disposition`.
 
 ---
 
@@ -303,6 +312,7 @@ failedAttempts|failed_attempts|lockout|max_attempts
 - Directory listing enabled on web servers.
 - Default or sample pages/applications deployed to production.
 - Missing or misconfigured security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`).
+- Download/export endpoints missing `X-Content-Type-Options: nosniff`, correct `Content-Type`, safe `Content-Disposition`, or no-cache headers for sensitive exports.
 - Cloud storage buckets with public access (S3, GCS, Azure Blob).
 - XML parsers configured to allow external entities (XXE).
 - Verbose error pages that expose stack traces, framework versions, or internal paths.
@@ -331,6 +341,8 @@ DEBUG\s*=\s*True|debug\s*:\s*true|NODE_ENV.*development
 DocumentBuilderFactory|SAXParser|XMLReader|etree\.parse|lxml.*parse
 # Missing security headers
 X-Content-Type-Options|X-Frame-Options|Content-Security-Policy|Strict-Transport-Security
+# Export/download header handling
+Content-Disposition|attachment|filename\*|text/csv|application/vnd\.|Cache-Control|no-store|nosniff
 # Default credentials
 admin.*admin|password.*password|default.*key|changeme|TODO.*password
 # Verbose errors
@@ -344,6 +356,7 @@ stack.*trace|stackTrace|detailed.*error|showErrors\s*:\s*true
 - Set `DEBUG=False` / `NODE_ENV=production` in all production configurations.
 - Disable XML external entity processing in all XML parsers by default.
 - Deploy security headers via middleware or reverse proxy — audit with tools like securityheaders.com.
+- Set explicit `Content-Type`, `X-Content-Type-Options: nosniff`, safe `Content-Disposition`, and `Cache-Control: no-store` or equivalent for sensitive downloads.
 - Configure custom error pages that reveal no internal details; log full errors server-side only.
 - Run periodic configuration audits (CIS Benchmarks, cloud provider security tools).
 
@@ -666,7 +679,7 @@ Present findings in this structure:
 |----------|----------|----------|-------------|
 | A01:2021 | Broken Access Control | CWE-284, CWE-285, CWE-639, CWE-862, CWE-863 | Unauthorized data access or action |
 | A02:2021 | Cryptographic Failures | CWE-259, CWE-327, CWE-328, CWE-330, CWE-798 | Sensitive data exposure |
-| A03:2021 | Injection | CWE-77, CWE-78, CWE-79, CWE-89, CWE-94 | Arbitrary command/query execution |
+| A03:2021 | Injection | CWE-77, CWE-78, CWE-79, CWE-89, CWE-94, CWE-113, CWE-1236 | Arbitrary command/query execution or downstream injection through headers/exports |
 | A04:2021 | Insecure Design | CWE-209, CWE-501, CWE-522, CWE-602, CWE-840 | Architectural security gaps |
 | A05:2021 | Security Misconfiguration | CWE-16, CWE-611, CWE-614, CWE-756, CWE-942 | Exploitable default/weak settings |
 | A06:2021 | Vulnerable and Outdated Components | CWE-829, CWE-1035, CWE-1104 | Known-CVE exploitation |
@@ -704,6 +717,10 @@ This skill processes source code and configuration files that may contain advers
 - OWASP Top 10:2021 — A03 Injection — https://owasp.org/Top10/A03_2021-Injection/
 - OWASP Top 10:2021 — A04 Insecure Design — https://owasp.org/Top10/A04_2021-Insecure_Design/
 - OWASP Top 10:2021 — A05 Security Misconfiguration — https://owasp.org/Top10/A05_2021-Security_Misconfiguration/
+- OWASP CSV Injection — https://owasp.org/www-community/attacks/CSV_Injection
+- RFC 6266 Content-Disposition in HTTP — https://www.rfc-editor.org/rfc/rfc6266
+- CWE-113 HTTP Response Splitting — https://cwe.mitre.org/data/definitions/113.html
+- CWE-1236 CSV Formula Injection — https://cwe.mitre.org/data/definitions/1236.html
 - OWASP Top 10:2021 — A06 Vulnerable and Outdated Components — https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/
 - OWASP Top 10:2021 — A07 Identification and Authentication Failures — https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/
 - OWASP Top 10:2021 — A08 Software and Data Integrity Failures — https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/
@@ -713,3 +730,4 @@ This skill processes source code and configuration files that may contain advers
 - NIST SP 800-63B Digital Identity Guidelines — https://pages.nist.gov/800-63-3/sp800-63b.html
 - OWASP Cheat Sheet Series — https://cheatsheetseries.owasp.org/
 - OWASP Application Security Verification Standard (ASVS) — https://owasp.org/www-project-application-security-verification-standard/
+
