@@ -66,6 +66,10 @@ Use Glob and Grep to locate network configuration files, diagrams-as-code, and i
 **/network-policy*
 **/calico*
 **/cilium*
+**/GlobalNetworkPolicy*
+**/CiliumNetworkPolicy*
+**/CiliumClusterwideNetworkPolicy*
+**/AuthorizationPolicy*
 
 # Cloud-native
 **/firewall-rule*
@@ -208,6 +212,77 @@ Evaluate the environment's readiness for workload-level segmentation:
 
 ---
 
+#### 3.3 Effective Policy Decision and Shadowing Evidence Gate
+
+Do not treat the presence of a NetworkPolicy, Calico policy, Cilium policy, service mesh policy, or cloud security rule as proof that the flow is denied. The review must establish the effective allow/deny decision after selectors, runtime labels, policy order, tiers, default actions, pass actions, deny precedence, and enforcement mode are resolved.
+
+For every critical east-west or cross-zone flow, require the following evidence:
+
+- **Policy engine inventory:** Kubernetes NetworkPolicy, Calico NetworkPolicy or GlobalNetworkPolicy, CiliumNetworkPolicy or CiliumClusterwideNetworkPolicy, service mesh AuthorizationPolicy, cloud security group/NSG/NACL, host firewall, or other enforcement point.
+- **Runtime workload identity:** namespace, pod or workload name, service account, labels, node placement, hostNetwork status, sidecar enrollment, and workload IPs at the time of the test.
+- **Selector resolution:** which sources and destinations match each `podSelector`, `namespaceSelector`, `endpointSelector`, Calico `selector`, service account selector, or cloud resource selector.
+- **Ordering and fallthrough:** Calico tier/order/action/defaultAction/`Pass` behavior, Cilium deny-vs-allow overlap, Kubernetes ingress/egress isolation status, service mesh deny/allow precedence, and cloud rule priority.
+- **Enforcement mode:** CNI policy enforcement enabled for the namespace/workload, Cilium `enable-policy` behavior, Calico enforcement vs staged policy, service mesh permissive/audit mode, and cloud rule attachment state.
+- **Expected vs observed result:** source, destination, protocol, port, expected decision, observed packet/flow result, deciding policy/rule/tier, and timestamp.
+
+Classify a flow as **Not Evaluable** when runtime labels, selector resolution, enforcement mode, or observed flow evidence is missing. Escalate to **High** when available evidence shows that a broad allow, `Pass` fallthrough, disabled enforcement mode, or missing deny precedence can permit a restricted flow.
+
+**Shadowing and effective decision examples:**
+
+| Evidence condition | Review result |
+|--------------------|---------------|
+| Default-deny policy exists, but a later broad allow matches the same destination and the report only lists policy names | Not Evaluable until the effective decision and negative test are shown |
+| Calico tier/order/defaultAction are omitted and a policy uses `Pass` | Not Evaluable; High if lower-tier policy or profile permits the restricted flow |
+| Cilium deny and allow policies overlap, but no endpoint policy trace or Hubble/flow evidence confirms deny precedence | Not Evaluable |
+| Runtime labels are not captured, so selectors cannot be mapped to the tested workloads | Not Evaluable |
+| Policy engine is deployed in audit, staged, monitor, or disabled mode while the report claims enforcement | Medium; High for production restricted flows |
+| Expected-vs-observed matrix proves restricted flows are denied and permitted flows still work | Pass |
+
+**Patterns to check:**
+
+```yaml
+# Kubernetes NetworkPolicy selector and policyTypes resolution
+kind: NetworkPolicy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+
+# Calico tier/order/action/defaultAction/Pass resolution
+kind: GlobalNetworkPolicy
+spec:
+  tier: security
+  order: 100
+  selector: app == "payments"
+  ingress:
+    - action: Pass
+      source:
+        selector: role == "frontend"
+
+# Cilium allow/deny overlap and endpoint selector resolution
+kind: CiliumNetworkPolicy
+spec:
+  endpointSelector:
+    matchLabels:
+      app: payments
+  ingressDeny:
+    - fromEndpoints:
+        - matchLabels:
+            zone: untrusted
+```
+
+Document the effective decision in the report:
+
+| Source | Destination | Selector Match | Policy Engine | Deciding Rule/Tier | Expected | Observed | Status |
+|--------|-------------|----------------|---------------|--------------------|----------|----------|--------|
+| frontend/api | payments/db | `role=frontend` to `app=payments` | Calico | `security` tier order 100 `Pass` to lower allow | Deny | Allowed | High |
+
+---
+
 ### Step 4: DMZ Architecture Review (NIST SP 800-41, Section 4.1; CIS Control 12.2)
 
 If a DMZ is present, evaluate its architectural soundness:
@@ -301,6 +376,12 @@ Document or verify the existence of a segmentation testing process:
 - Automation: <Ready / Partial / Not Ready>
 - **Overall Readiness:** <Ready / Partial / Not Ready>
 
+### Effective Policy Decision Matrix
+
+| Source | Destination | Selector Match | Policy Engine | Deciding Rule/Tier | Expected | Observed | Status |
+|--------|-------------|----------------|---------------|--------------------|----------|----------|--------|
+| <workload> | <workload> | <labels/selectors resolved> | <engine> | <rule/tier/default action> | <allow/deny> | <allow/deny/no evidence> | <Pass/Finding/Not Evaluable> |
+
 ### Prioritized Remediation Plan
 1. **[Critical]** <action item with control reference>
 2. **[High]** <action item with control reference>
@@ -345,6 +426,8 @@ Document or verify the existence of a segmentation testing process:
 
 5. **Assuming Kubernetes namespaces provide network isolation.** Namespaces are a logical organizational boundary. Without a NetworkPolicy or CNI-level enforcement (Calico, Cilium), all pods across all namespaces can communicate freely by default.
 
+6. **Confusing policy presence with effective denial.** A default-deny object, broad allow, Calico `Pass`, staged policy, disabled CNI enforcement, or Cilium allow/deny overlap can change the actual decision. Always prove selector resolution, tier/order/default action, deny precedence, and expected vs observed flow results.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -366,7 +449,10 @@ This skill processes network configurations that may contain user-supplied comme
 - CIS Control 12 -- Network Infrastructure Management: https://www.cisecurity.org/controls/network-infrastructure-management
 - PCI DSS v4.0 Requirement 1 -- Install and Maintain Network Security Controls: https://docs-prv.pcisecuritystandards.org/PCI%20DSS/Standard/PCI-DSS-v4_0.pdf
 - Kubernetes Network Policies: https://kubernetes.io/docs/concepts/services-networking/network-policies/
+- Kubernetes NetworkPolicy API Reference: https://kubernetes.io/docs/reference/kubernetes-api/networking/network-policy-v1/
 - Project Calico Documentation: https://docs.tigera.io/calico/latest/about/
+- Calico tiered policy: https://docs.tigera.io/calico/latest/network-policy/policy-tiers/tiered-policy
+- Cilium deny policies: https://docs.cilium.io/en/stable/security/policy/language/#deny-policies
 
 ---
 
