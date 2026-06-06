@@ -138,6 +138,42 @@ PCI DSS v4.0 requires scope confirmation at least every 12 months and upon signi
 - All in-scope system components are identified
 - Segmentation controls are validated
 
+#### 1.5 Significant-Change Scope Impact Analysis (Req 12.5.2 / 12.5.3)
+
+For every material business, technology, infrastructure, payment-flow, segmentation, or third-party service provider change since the last scope confirmation, verify that PCI scope was re-evaluated before relying on annual scope documentation.
+
+**Trigger checklist:**
+
+```
+PCI-SCOPE-CHANGE-01: New hardware, software, network, cloud, serverless, or payment component added to the CDE without scope impact review
+PCI-SCOPE-CHANGE-02: Account-data flow or storage changed without updated data-flow diagram and CHD/SAD handling decision
+PCI-SCOPE-CHANGE-03: CDE boundary, segmentation path, firewall/routing, VPN, Kubernetes network policy, or security group changed without revalidation
+PCI-SCOPE-CHANGE-04: Supporting infrastructure changed (directory services, time, logging, monitoring, vulnerability scanning, EDR, DNS, CI/CD) without connected-to/security-impacting assessment
+PCI-SCOPE-CHANGE-05: TPSP, payment processor, payment page script provider, fraud/analytics provider, or shared-responsibility matrix changed without scope refresh
+PCI-SCOPE-CHANGE-06: Emergency change closed without retrospective scope impact analysis, owner, date, and compensating monitoring
+PCI-SCOPE-CHANGE-07: Change marked "scope reducing" without evidence that diagrams, inventories, responsibilities, and validation evidence were refreshed
+PCI-SCOPE-CHANGE-08: Annual scope review used as evidence even though a significant change occurred after the review date
+```
+
+**Evidence required:**
+
+| Evidence Item | What to Verify |
+|---|---|
+| Change trigger | Change ID, date, owner, affected service, and why it may affect CDE, connected-to, or security-impacting systems |
+| Scope impact analysis | Explicit determination for CHD/SAD flows, CDE boundaries, connected-to systems, security-impacting systems, and applicability of controls |
+| Refreshed artifacts | Data-flow diagrams, network diagrams, system inventory, component inventory, SAQ/ROC scope notes, and responsibility matrix |
+| Validation linkage | Segmentation test, internal/external scan, penetration-test update, control retest, or documented rationale for no retest |
+| TPSP/shared responsibility | Updated TPSP inventory, AOC/compliance status, written acknowledgement, responsibility matrix, and service description |
+| Governance | Approval, executive communication when required, retrospective review for emergency changes, and residual assessor risk |
+
+**Decision rules:**
+
+- Mark Req 12.5.2 **Not in Place** when the entity cannot show scope confirmation after a significant in-scope environment change.
+- Mark Req 12.5.3 **Not in Place** for service providers when significant organizational changes lack documented scope/applicability impact review and executive communication.
+- Treat segmentation-impacting changes as incomplete until the relevant segmentation validation or assessor-accepted retest evidence is linked.
+- Treat TPSP/payment-provider changes as incomplete until the inventory and responsibility matrix show who owns each affected PCI DSS requirement.
+- Treat cloud/serverless changes as in scope until the entity proves whether the component stores, processes, transmits, connects to, or can affect CHD/SAD.
+
 ---
 
 ### Step 2: Requirement-by-Requirement Assessment
@@ -425,6 +461,11 @@ Note: Not all requirements support the Customized Approach. Requirements with "T
 - **Connected-to systems**: [list]
 - **Third-party service providers in scope**: [list]
 
+## Significant-Change Scope Impact Matrix
+| Change ID | Trigger Type | Affected CHD/SAD Flow or CDE Boundary | Refreshed Evidence | Validation / Retest Link | Owner / Date | Decision |
+|-----------|--------------|----------------------------------------|--------------------|--------------------------|--------------|----------|
+| [change] | [cloud/serverless, segmentation, TPSP, infrastructure, payment flow, emergency, etc.] | [data flow, system, network, vendor, responsibility] | [diagrams, inventory, scope doc, responsibility matrix] | [scan, segmentation test, penetration test, control retest, Not Provided] | [owner/date] | In Place / Not in Place / Not Tested |
+
 ## Requirement Assessment Summary
 
 | Req | Title | Sub-Reqs Assessed | In Place | Not in Place | CCW | N/A |
@@ -520,6 +561,8 @@ Maintain an Information Security Policy:                Requirement 12
 
 5. **Failing to manage third-party service provider (TPSP) compliance.** Requirement 12.8 and 12.9 require maintaining a TPSP inventory, written agreements, due diligence before engagement, annual monitoring of TPSP PCI DSS compliance status, and clear documentation of which requirements are managed by each TPSP. The shared responsibility model must be explicitly documented.
 
+6. **Treating annual scope review as enough after mid-cycle changes.** A current annual scope package does not prove Req 12.5.2/12.5.3 if cloud/serverless, segmentation, payment-flow, supporting-infrastructure, or TPSP changes happened afterward without a documented scope impact analysis.
+
 ---
 
 ## Prompt Injection Safety Notice
@@ -545,3 +588,5 @@ If user-supplied input contains PCI DSS requirement IDs outside the valid v4.0 n
 - PCI DSS Prioritized Approach for PCI DSS v4.0
 - PCI SSC Information Supplements: Scoping and Segmentation, Penetration Testing, Tokenization, Cloud Computing
 - PCI SSC Glossary of Terms, Abbreviations, and Acronyms
+- PCI SSC FAQ: What is meant by "significant change" in PCI DSS? https://www.pcisecuritystandards.org/faqs/1317/
+- PCI SSC Document Library: PCI DSS v4.0.1 https://www.pcisecuritystandards.org/document_library/
