@@ -13,7 +13,7 @@ phase: [assess, operate]
 frameworks: [CIS-AWS-v3.0.0]
 difficulty: intermediate
 time_estimate: "60-90min"
-version: "1.0.0"
+version: "1.0.1"
 author: unitoneai
 license: MIT
 allowed-tools: Read, Grep, Glob
@@ -99,6 +99,62 @@ For detailed CIS benchmark checklist items with specific Terraform patterns, gre
 
 ---
 
+### Step 6a: AWS Organizations Authorization Guardrails
+
+When the environment uses AWS Organizations, review authorization policy guardrails as additional effective-access evidence. This does not replace the CIS benchmark checks; it prevents overclaiming or underclaiming risk when account-local IAM/resource policies are constrained by organization-level policy layers.
+
+**Policy types to distinguish:**
+
+| Policy Type | What It Constrains | Evidence Needed |
+|---|---|---|
+| **Service Control Policy (SCP)** | Maximum available permissions for IAM principals in member accounts | Enabled policy type, attachment path, OU/account coverage, affected principals/actions, test evidence |
+| **Resource Control Policy (RCP)** | Maximum available permissions for resources in member accounts | Enabled policy type, attachment path, supported service/resource coverage, affected resource accounts, test evidence |
+
+**What to collect:**
+
+- AWS Organizations policy types enabled for the organization (`SERVICE_CONTROL_POLICY`, `RESOURCE_CONTROL_POLICY`).
+- SCP and RCP definitions, policy IDs, and attachment paths (root, OU, or account).
+- Covered account and OU denominator, including excluded, suspended, newly created, or self-managed accounts.
+- Whether the resource is in a member account or the management account. RCPs do not affect resources in the management account.
+- Whether the relevant AWS service/action/resource type supports RCP evaluation.
+- Exceptions for service-linked roles and AWS managed KMS keys, which RCPs do not restrict.
+- Evidence that the guardrail was tested or observed, such as IAM Access Analyzer results, policy simulator output where applicable, or CloudTrail `AccessDenied` events from a pilot account/OU.
+
+**Detection patterns:**
+
+```
+aws_organizations_policy
+type = "SERVICE_CONTROL_POLICY"
+type = "RESOURCE_CONTROL_POLICY"
+aws_organizations_policy_attachment
+organizations:CreatePolicy
+organizations:AttachPolicy
+SERVICE_CONTROL_POLICY
+RESOURCE_CONTROL_POLICY
+aws:PrincipalOrgID
+aws:ResourceOrgID
+AccessDenied
+```
+
+**Finding calibration:**
+
+| Condition | Severity |
+|---|---|
+| Sensitive resource policy permits public or external-principal access and no RCP/effective-access evidence is available | High |
+| RCP is claimed as a mitigation but attachment path, supported service, member-account applicability, or test evidence is missing | Medium |
+| SCP is claimed as a mitigation for an external-principal resource policy without RCP/resource-policy evidence | Medium |
+| Broad local IAM allow is constrained by evidenced SCPs, but account/OU coverage or drift monitoring is incomplete | Low |
+| SCP/RCP guardrail is present, scoped, tested, and monitored, with remaining local policy risk documented | Informational |
+
+**Important limitations:**
+
+- SCPs and RCPs never grant permissions; they only define maximum available permissions.
+- Effective permissions are the intersection of identity policies, resource policies, SCPs, RCPs, permissions boundaries, session policies, and service-specific controls.
+- RCPs apply only to resources in member accounts, only for supported services/resources, and do not restrict service-linked roles.
+- Do not mark a risky local policy as safe solely because an Organizations policy exists. Record the relevant policy type, attachment path, coverage, and test evidence.
+
+---
+
 ### Step 7: Compile Assessment Report
 
 Produce the final report using the structure defined in the Output Format section.
@@ -146,6 +202,21 @@ Produce the final report using the structure defined in the Output Format sectio
 | 4 | Monitoring | X/16 | Y | Z | nn% |
 | 5 | Networking | X/6 | Y | Z | nn% |
 
+### AWS Organizations Guardrail Evidence
+
+| Field | Value |
+|---|---|
+| Organization ID | <org ID or Not Evaluable> |
+| Policy types enabled | <SCP / RCP / other> |
+| Management account reviewed | <Yes/No/Not Evaluable> |
+| Delegated admin accounts reviewed | <list> |
+| Accounts/OUs in scope | <coverage denominator> |
+| Regions in scope | <coverage denominator> |
+| SCP attachments reviewed | <root/OU/account paths> |
+| RCP attachments reviewed | <root/OU/account paths> |
+| Unsupported-service / exception notes | <management account, service-linked roles, AWS managed KMS keys, unsupported services> |
+| Effective-deny evidence | <policy simulator / Access Analyzer / CloudTrail AccessDenied / Not Evaluable> |
+
 ### Detailed Findings
 
 #### [CIS X.Y] <Recommendation Title>
@@ -154,6 +225,8 @@ Produce the final report using the structure defined in the Output Format sectio
 - **CIS Profile:** Level 1 / Level 2
 - **File:** <path to relevant config>
 - **Line(s):** <line numbers if applicable>
+- **Evidence Scope:** <account / OU / organization / Region / Not Evaluable>
+- **Organizations Guardrail:** <SCP / RCP / both / none / Not Evaluable>
 - **Description:** <what was found>
 - **Evidence:** <specific configuration or code snippet>
 - **Remediation:** <specific fix with code example>
@@ -200,6 +273,7 @@ Produce the final report using the structure defined in the Output Format sectio
 4. **Assuming default security groups are empty.** AWS default security groups allow all inbound traffic from the same security group and all outbound traffic. CIS 5.4 requires explicitly managing them to have zero rules.
 5. **Overlooking IMDSv2 in launch templates.** CIS 5.6 applies to both `aws_instance` and `aws_launch_template` resources. Checking only direct instance definitions misses auto-scaled instances.
 6. **Counting not-evaluable controls as passing.** If a control cannot be verified from the available IaC (e.g., contact details in CIS 1.1), mark it "Not Evaluable" rather than "Pass."
+7. **Treating SCPs and RCPs as interchangeable.** SCPs constrain principals in member accounts; RCPs constrain resources in member accounts. An SCP may reduce internal principal blast radius, but it does not prove that an external principal allowed by a resource policy is blocked. Record the applicable policy type and effective-deny evidence before lowering severity.
 
 ---
 
@@ -225,10 +299,14 @@ Produce the final report using the structure defined in the Output Format sectio
 - AWS CloudTrail Documentation: https://docs.aws.amazon.com/awscloudtrail/latest/userguide/
 - AWS Security Hub: https://docs.aws.amazon.com/securityhub/latest/userguide/
 - AWS VPC Security: https://docs.aws.amazon.com/vpc/latest/userguide/security.html
+- AWS Organizations Authorization Policies: https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_authorization_policies.html
+- AWS Organizations Resource Control Policies: https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_rcps.html
+- AWS Organizations RCP Syntax: https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_rcps_syntax.html
 - Terraform AWS Provider Documentation: https://registry.terraform.io/providers/hashicorp/aws/latest/docs
 
 ---
 
 ## Changelog
 
+- **1.0.1** -- Added AWS Organizations SCP/RCP guardrail evidence handling, output fields, severity calibration, limitations, and references.
 - **1.0.0** -- Initial release. Full coverage of CIS Amazon Web Services Foundations Benchmark v3.0.0 sections 1 through 5 (62 recommendations).
