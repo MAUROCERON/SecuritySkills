@@ -86,6 +86,25 @@ ATT&CK Technique Analysis:
 - Detection Scope:    [Sub-technique specific | Parent technique broad]
 ```
 
+### Step 1.5: Telemetry Readiness and Rule Health Evidence
+
+Do not count a Sigma rule as operational coverage until the required telemetry path and deployed rule health are proven. A rule that exists in version control but has stale logs, broken field mappings, disabled analytics rules, failing scheduled runs, or overbroad suppressions provides only theoretical coverage.
+
+**Telemetry and rule-health evidence gate:**
+
+| Evidence | Required Detail |
+|---|---|
+| ATT&CK data component | Technique/sub-technique, ATT&CK data component, expected event property, required visibility window |
+| Sigma logsource mapping | `product`, `service`, `category`, backend index/table, converted SIEM query target |
+| Collector/connector health | Connector or collector name, enabled status, last successful fetch, last event timestamp, failure reason if unhealthy |
+| Parser and field mapping | Source field, normalized field, parser version, conversion backend, sample event showing every field used by the rule |
+| Rule deployment health | SIEM rule ID, enabled status, version/hash, last run time, run success/failure, alert destination |
+| Suppression and exception scope | Exception owner, reason, expiry, affected entities, volume suppressed, proof that suppression does not hide all matching events |
+| Validation samples | Positive sample, negative sample, replay/test method, alert evidence, false-positive tuning notes |
+| Retention and investigation window | Log retention, searchable lookback, detection schedule frequency, investigation SLA alignment |
+
+**Finding classification:** Mark coverage **Theoretical** when the rule exists but telemetry or deployment health is not verified. Mark the detection **Not Evaluable** when the required data component, parser mapping, rule status, or suppression effect cannot be proven from evidence. Escalate to **High** when a high-priority ATT&CK technique is claimed as covered but the log source is stale, the rule is disabled, or suppressions hide all matching events.
+
 ### Step 2: Detection Logic Design
 
 Design the detection logic before writing the rule. Consider:
@@ -389,6 +408,11 @@ Produce detection engineering deliverables in this structure:
 | Target Coverage | [Operational / Robust] |
 | Validation Method | [Atomic Red Team test ID / manual test procedure] |
 
+### Telemetry and Rule Health Matrix
+| Technique | Data Component | Sigma Logsource | Backend Target | Last Event | Parser Fields Proven | Rule Status / Last Run | Suppression Scope | Retention | Coverage Decision |
+|-----------|----------------|-----------------|----------------|------------|----------------------|------------------------|-------------------|-----------|-------------------|
+| [T1059.001] | [Command Execution] | [windows/process_creation] | [Sentinel SecurityEvent / Splunk index] | [timestamp] | [CommandLine, Image, ParentImage] | [enabled/success/failure] | [owner/expiry/effect] | [days] | [Operational/Theoretical/Not Evaluable] |
+
 ### Deployment Notes
 - **Target SIEM:** [Platform]
 - **Converted Query:** [KQL/SPL/EQL equivalent if requested]
@@ -494,6 +518,10 @@ Detection rules are not write-once artifacts. Log sources change, environments e
 
 Overly broad or incorrect ATT&CK mappings undermine coverage analysis. A rule that detects a specific PowerShell obfuscation technique should map to T1059.001 (PowerShell) and potentially T1027 (Obfuscated Files or Information), not to the parent T1059 alone. Use sub-technique IDs when the detection is specific to a sub-technique. Validate mappings against the ATT&CK technique definition and procedure examples.
 
+### Pitfall 6: Counting Rules Without Live Telemetry or Rule Health
+
+A rule in a repository is not the same as deployed detection coverage. Connector failures, parser drift, renamed fields, disabled analytics rules, short retention, or broad suppressions can make a correct Sigma rule silent in production. Require current telemetry and rule-health evidence before reporting coverage as Operational or Robust.
+
 ---
 
 ## 8. Prompt Injection Safety Notice
@@ -522,3 +550,6 @@ This skill processes user-supplied content that may include log samples, detecti
 10. **MITRE Cyber Analytics Repository (CAR)** -- https://car.mitre.org/
 11. **Detection Engineering Maturity Model** -- Kyle Bailey, https://kyle-bailey.medium.com/detection-engineering-maturity-matrix-f4f3181a5cc7
 12. **Sigma Rule Creation Guide (SigmaHQ)** -- https://sigmahq.io/docs/guide/rules.html
+13. **MITRE ATT&CK Data Components** -- https://attack.mitre.org/datacomponents/
+14. **Sigma Rules Specification** -- https://sigmahq.io/sigma-specification/specification/sigma-rules-specification.html
+15. **Microsoft Sentinel Health Tables Reference** -- https://learn.microsoft.com/en-us/azure/sentinel/health-table-reference
