@@ -275,6 +275,30 @@ Identify deviations from established baselines that may indicate malicious activ
 | New user accounts created | Account management logs | Per day | Persistence detection |
 | Privileged logon count | Authentication logs (4672) | Per day | Privilege abuse detection |
 
+### Step 6.5: Timestamp Normalization and Clock Skew Evidence
+
+Before correlating logs or building a timeline, validate that each source's timestamp can be trusted and normalized. Treat timestamp trust as an evidence gate, not a formatting step.
+
+**Timestamp Normalization and Clock Skew Evidence Gate:**
+
+| Evidence Item | What to Verify | Why It Matters |
+|---------------|----------------|----------------|
+| Event time field | Which source field represents when the activity occurred (for example, Windows `TimeCreated`, AWS CloudTrail `eventTime`, SIEM `_time`, or Elastic `@timestamp`) | Prevents accidentally ordering events by parser or ingestion time |
+| Ingestion or index time | Which field represents when the SIEM, data lake, or indexer received the event (for example, Splunk `_indextime` or Elastic `event.ingested`) | Reveals delayed delivery, backfill, queue backlog, and replayed logs |
+| Source time zone / offset | Whether the raw source includes UTC, local time, offset, year, and daylight-saving context | Prevents false sequence conclusions when Linux auth logs, Windows logs, and cloud audit logs use different formats |
+| Clock sync / skew evidence | NTP status, domain controller time, EDR collector metadata, cloud service time semantics, or observed offset versus a trusted source | Detects hosts whose clocks make events appear before or after they actually occurred |
+| Parser timestamp field | Which parser rule selected the canonical timestamp and whether it ignored an embedded timestamp | Catches SIEM mappings where `_time` or `@timestamp` is the ingestion time instead of the event time |
+| Normalization decision | Whether the event can be converted to UTC with high, medium, low, or no confidence | Sets the confidence level for any timeline, temporal join, or sequence claim |
+
+**Decision rules:**
+
+- Mark timeline entries as **High Confidence** only when event time, source time zone or UTC offset, parser selection, and clock sync / skew evidence are all established.
+- Mark entries as **Medium Confidence** when the event time is known but source time zone, parser selection, or clock skew is inferred from corroborating evidence.
+- Mark entries as **Low Confidence** when the event time is present but ingestion delay, clock skew, or source time zone cannot be ruled out.
+- Mark temporal conclusions as **Not Evaluable** when event time, ingestion time, source time zone, or clock skew evidence cannot be established for a source that is material to the finding.
+- Do not use ingestion/index time as event time unless the log source is explicitly defined that way and the report states the limitation.
+- When CloudTrail, SIEM, or data lake records arrive out of order, sort by validated event time and document ingestion delay separately.
+
 ### Step 7: Log Correlation Techniques
 
 Combine data from multiple log sources to reconstruct attack sequences and increase detection confidence.
@@ -312,6 +336,8 @@ Step 4: Pivot on host
   -> File log: What files were created, modified, or accessed after logon?
 
 Step 5: Build timeline
+  -> Validate event time vs ingestion/index time for each source
+  -> Normalize timestamps to UTC and document clock-skew confidence
   -> Combine all findings into a chronological sequence
   -> Map each event to an ATT&CK technique
   -> Identify gaps in visibility (log sources not available)
@@ -369,10 +395,15 @@ Produce log analysis findings in this structure:
 **Analysis:**
 [Interpretation of the evidence -- why is this significant or benign?]
 
+### Timestamp Normalization Matrix
+| Log Source | Event Time Field | Source TZ/Offset | Ingestion / Index Time | Clock Sync / Skew Evidence | Parser Timestamp Field | Confidence Decision |
+|------------|------------------|------------------|-------------------------|----------------------------|------------------------|---------------------|
+| [Source] | [Field] | [UTC / offset / unknown] | [Field or N/A] | [Evidence] | [Field/rule] | [High / Medium / Low / Not Evaluable] |
+
 ### Timeline
-| Timestamp (UTC) | Source | Event | ATT&CK Technique | Assessment |
-|-----------------|--------|-------|-------------------|------------|
-| [HH:MM:SS] | [Source] | [Description] | [T-ID] | [Suspicious / Benign / Confirmed malicious] |
+| Timestamp (UTC) | Source | Event | ATT&CK Technique | Timestamp Confidence | Assessment |
+|-----------------|--------|-------|-------------------|----------------------|------------|
+| [HH:MM:SS] | [Source] | [Description] | [T-ID] | [High / Medium / Low / Not Evaluable] | [Suspicious / Benign / Confirmed malicious] |
 
 ### Baseline Observations
 [Any baseline deviations noted, with comparison to established norms]
@@ -451,6 +482,10 @@ A single Event ID can have very different meanings depending on the context. Eve
 
 Attempting to identify anomalous behavior without knowing what normal behavior looks like leads to both false positives (flagging normal activity as suspicious) and false negatives (missing truly anomalous activity that blends into an unfamiliar baseline). Invest in baseline establishment for high-value log sources before relying on anomaly-based analysis.
 
+### Pitfall 6: Building Timelines Without Timestamp Trust
+
+Chronological order is only meaningful if each event's timestamp semantics are understood. Cloud audit events may arrive out of order, SIEM searches may mix event time with ingestion time, Linux auth logs may omit year or timezone data, and endpoint clocks may drift from a domain controller or NTP source. Before claiming that event A happened before event B, document the event time field, ingestion/index time, timezone or UTC offset, parser rule, and clock-skew evidence. If this evidence is missing for a material source, mark the temporal conclusion `Not Evaluable`.
+
 ---
 
 ## 8. Prompt Injection Safety Notice
@@ -478,3 +513,6 @@ This skill processes user-supplied content that may include raw log data, event 
 9. **AWS CloudTrail Event Reference** -- https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference.html
 10. **Azure Activity Log Schema** -- https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/activity-log-schema
 11. **NIST SP 800-61 Rev 2 -- Incident Handling Guide** -- https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final
+12. **AWS CloudTrail Events** -- https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-events.html
+13. **Splunk Time Modifiers** -- https://help.splunk.com/en/splunk-enterprise/spl-search-reference/10.0/time-format-variables-and-modifiers/time-modifiers
+14. **Elastic Ingest Lag Metadata** -- https://www.elastic.co/docs/manage-data/ingest/transform-enrich/ingest-lag
