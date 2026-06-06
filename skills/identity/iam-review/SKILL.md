@@ -199,6 +199,59 @@ IAM-PRIV-08: Resource-based policies granting public or overly broad access
 
 ---
 
+### Step 3.5: External Trust and Session Constraint Evidence
+
+**Objective:** Verify the trust boundary and session attributes before passing external, cross-account, service-principal, or federated access as least privilege.
+
+Do not mark external or federated access as **Pass** based only on identity-based permissions. Review the trust policy, resource policy, federation provider configuration, and session controls that decide who can obtain the permission-bearing session. If that evidence is unavailable, mark the trust boundary **Not Evaluable** and explain which artifact is missing.
+
+#### Review Checklist
+
+```
+IAM-TRUST-01: External AWS principal without sts:ExternalId or equivalent confused-deputy control
+IAM-TRUST-02: Broad trusted principal without aws:PrincipalOrgID, aws:SourceAccount, aws:SourceArn, or scoped provider constraint
+IAM-TRUST-03: Federated trust missing issuer, audience, subject, or claim-mapping restrictions
+IAM-TRUST-04: Role permits sts:TagSession without aws:RequestTag, aws:TagKeys, or sts:TransitiveTagKeys limits
+IAM-TRUST-05: Tag-based authorization accepts caller-supplied session tags as privileged attributes
+IAM-TRUST-06: sts:SourceIdentity or role session name not required for shared/admin roles
+IAM-TRUST-07: MFA, session duration, or session age controls absent for privileged assume-role paths
+IAM-TRUST-08: Review passes without Access Analyzer/provider finding evidence for external access
+IAM-TRUST-09: Only identity policy was reviewed; trust boundary marked Pass instead of Not Evaluable
+```
+
+**Evidence Matrix:**
+
+| Evidence Item | What to Verify | Risk if Missing |
+|---|---|---|
+| Trusted principal inventory | Principal type, account/org boundary, service principal, SAML/OIDC provider, delegated admin, and service-linked role exclusions | Review may treat a broad or unintended principal as a bounded identity |
+| Trust policy / resource policy | `Principal`, `Action`, and `Condition` statements for every external or federated assume path | Permission policy can look narrow while the role remains assumable by the wrong actor |
+| Confused-deputy controls | `sts:ExternalId`, `aws:SourceArn`, `aws:SourceAccount`, `aws:SourceOrgID`, or provider-specific equivalent | A third party or service principal can be tricked into using the role for another tenant/account |
+| Principal scope | `aws:PrincipalOrgID`, account allowlists, provider tenant/client IDs, or explicit subject constraints | Broad account/org/provider trust may outgrow the intended integration |
+| Federation claims | Issuer, audience, subject, group/role claim mapping, and provider thumbprint/certificate lifecycle | Token from the wrong workflow, tenant, branch, or application can assume the role |
+| Session identity | `sts:SourceIdentity`, `sts:RoleSessionName`, identity-provider attribute mapping, and CloudTrail visibility | Incident response cannot determine who or what used the assumed role |
+| Session tags | `sts:TagSession`, `aws:RequestTag`, `aws:TagKeys`, `aws:PrincipalTag`, and `sts:TransitiveTagKeys` constraints | Callers can self-assert tags that drive ABAC or persist privileged attributes through role chaining |
+| Session context | MFA requirement, session duration, session age, source network/device context, and JIT activation evidence | Privileged sessions can be long-lived, unverified, or detached from the approved access event |
+| Analyzer evidence | IAM Access Analyzer external/internal findings, cloud-provider policy analyzer output, or documented compensating review | Hidden external access paths may remain outside the assessment scope |
+
+**Platform-specific checks:**
+
+| Platform | Check | What to look for |
+|---|---|---|
+| **AWS** | Role trust policies, resource policies, IAM Access Analyzer findings | Missing `sts:ExternalId`, broad `Principal`, absent `aws:SourceAccount` / `aws:SourceArn` / `aws:PrincipalOrgID`, unconstrained session tags |
+| **AWS** | CloudTrail `AssumeRole*` events | `sourceIdentity`, session tags, role session name, MFA context, unexpected caller account, excessive session duration |
+| **Azure / Entra ID** | App registrations, federated identity credentials, workload identity federation | Issuer/audience/subject drift, broad repo/branch/environment claims, long-lived client secrets used as fallback |
+| **GCP** | Workload Identity Federation pools/providers, IAM Conditions, Policy Analyzer | Provider attribute mapping, audience/subject restrictions, principalSet breadth, missing time or resource conditions |
+
+**Decision Rules:**
+
+- Treat external principals without a unique external ID or equivalent confused-deputy protection as **High** or **Critical**, depending on reachable privileges.
+- Treat `sts:TagSession` as **High** when tag-based authorization uses caller-controlled tags without `aws:RequestTag`, `aws:TagKeys`, or transitive-tag limits.
+- Treat missing `sts:SourceIdentity`, role session name, or equivalent audit identity as at least **Medium** for shared roles and **High** for administrative roles.
+- Mark the trust boundary **Not Evaluable** when the role trust policy, provider trust config, resource policy, or analyzer evidence is absent from the review package.
+- Separate service-linked roles and managed service principals from customer-managed trust relationships; document the service-specific condition keys that are supported.
+
+---
+
 ### Step 4: Service Account Hygiene
 
 **Objective:** Assess service account security posture and credential management.
@@ -414,6 +467,12 @@ For each finding, produce a row with:
 ### Detailed Findings
 [Findings table — see above]
 
+### External Trust and Session Constraint Matrix
+
+| Role / Trust | Principal | Conditions Reviewed | Session Controls | Analyzer Evidence | Decision |
+|---|---|---|---|---|---|
+| [role/resource] | [account/service/federated provider] | [ExternalId, SourceArn, SourceAccount, PrincipalOrgID, issuer/aud/sub, etc.] | [SourceIdentity, session tags, MFA, duration, JIT] | [finding ID or Not Provided] | Pass / Fail / Partial / Not Evaluable |
+
 ### Remediation Roadmap
 [Prioritized actions: immediate (0-7 days), short-term (30 days), medium-term (90 days)]
 
@@ -431,6 +490,15 @@ For each finding, produce a row with:
 | **P1 — Urgent** | 8-30 days | No JIT for admin access, service account keys > 1 year old, no stale account process |
 | **P2 — Important** | 31-90 days | No phishing-resistant MFA, incomplete identity inventory, no access review cadence |
 | **P3 — Planned** | 91-180 days | Zero trust maturity gaps, device trust integration, continuous access evaluation |
+
+---
+
+## References
+
+- AWS IAM: The confused deputy problem - `sts:ExternalId`, `aws:SourceArn`, `aws:SourceAccount`, and `aws:SourceOrgID` - https://docs.aws.amazon.com/IAM/latest/UserGuide/confused-deputy.html
+- AWS IAM: Monitor and control actions taken with assumed roles - `sts:SourceIdentity` and CloudTrail visibility - https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_control-access_monitor.html
+- AWS IAM: Pass session tags in AWS STS - `sts:TagSession`, `aws:RequestTag`, `aws:TagKeys`, and transitive tags - https://docs.aws.amazon.com/IAM/latest/UserGuide/id_session-tags.html
+- AWS IAM: IAM Access Analyzer findings - external, internal, and unused access findings - https://docs.aws.amazon.com/IAM/latest/UserGuide/access-analyzer-findings.html
 
 ---
 
