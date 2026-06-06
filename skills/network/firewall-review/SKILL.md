@@ -254,6 +254,45 @@ Egress filtering prevents compromised internal hosts from establishing unrestric
 
 ---
 
+#### 2.8 Management Plane Security (NIST SP 800-41, Section 5.2)
+
+Firewall management access is a separate control plane from ordinary application traffic. A rule base can be least-privilege for production flows while the firewall console, SSH service, SNMP service, API, or centralized manager remains exposed or weakly controlled. Review the management plane explicitly instead of inferring safety from packet rules alone.
+
+**What to verify:**
+
+- Management services are inventoried: HTTPS UI, API, SSH, SNMP, serial/OOB access, centralized managers, cloud firewall APIs, HA sync links, and vendor support access.
+- Management services are bound only to management interfaces, management VRFs, VPNs, bastions, or trusted administration subnets.
+- Public internet access to firewall management services is denied, except for a documented emergency pattern with compensating controls.
+- Unused management protocols are disabled. Telnet, HTTP, and SNMPv1/v2c should not be enabled for production management. SNMP, if required, should use SNMPv3.
+- Administrator access uses named accounts, MFA or SSO where supported, least-privilege admin roles, and read-only auditor roles for log review.
+- Shared daily-use superuser accounts are disabled or limited to documented break-glass use with alerting.
+- Administrative login, configuration change, rule modification, rule disablement, and policy publish events are logged and forwarded to a SIEM or centralized log store.
+- Configuration backups, rollback procedures, and clock synchronization are present so rule changes are attributable and recoverable.
+
+**Patterns to check:**
+
+```
+# BAD: management exposed broadly
+allow tcp any host fw-wan-ip eq 443
+allow tcp any host fw-wan-ip eq 22
+allow udp any host fw-wan-ip eq 161
+
+# GOOD: management restricted to dedicated administration network
+allow tcp 10.20.30.0/24 host fw-mgmt-ip eq 443 log
+allow tcp 10.20.30.0/24 host fw-mgmt-ip eq 22 log
+deny ip any host fw-mgmt-ip log
+
+# BAD: local shared superuser with no change audit
+admin user: admin
+profile: superuser
+mfa: disabled
+policy-change-forwarding: disabled
+```
+
+**Finding classification:** Public firewall management exposure is **Critical**. Broad internal management exposure, shared daily-use superuser administration, or disabled policy-change logging is **High**. Missing read-only auditor role, missing configuration backup evidence, or undocumented break-glass accounts are **Medium**.
+
+---
+
 ### Step 3: Compile Assessment Report
 
 Produce the final report using the following structure.
@@ -265,8 +304,8 @@ Produce the final report using the following structure.
 | Severity | Definition |
 |----------|-----------|
 | **Critical** | Missing default deny; any/any inbound rules. Immediate exploitation risk. |
-| **High** | Overly permissive outbound rules; shadowed deny rules; no logging on deny actions; missing anti-spoofing; unused rules to decommissioned resources. |
-| **Medium** | Shadowed permit rules; missing egress DNS restriction; unused rules (active resources); missing logging on sensitive permits; missing stealth rules. |
+| **High** | Overly permissive outbound rules; shadowed deny rules; no logging on deny actions; missing anti-spoofing; unused rules to decommissioned resources; broad internal management exposure; shared daily-use superuser administration; disabled policy-change logging. |
+| **Medium** | Shadowed permit rules; missing egress DNS restriction; unused rules (active resources); missing logging on sensitive permits; missing stealth rules; missing read-only auditor role; undocumented break-glass accounts. |
 | **Low** | Rule documentation gaps; suboptimal rule ordering with no current security impact; cosmetic rule base issues. |
 
 ---
@@ -317,6 +356,15 @@ Produce the final report using the following structure.
 | SMTP (25)     | Yes/No    | <mail server IPs>      |
 | HTTPS (443)   | Yes/No    | <proxy or direct>      |
 
+### Management Plane Status
+| Control | Status | Evidence |
+|---------|--------|----------|
+| Management services inventoried | Pass/Fail/Not Evaluable | <interfaces, services, managers> |
+| Source/interface restrictions | Pass/Fail/Not Evaluable | <allowed admin networks or VPNs> |
+| Admin MFA/SSO and named accounts | Pass/Fail/Not Evaluable | <IdP, role, or local account evidence> |
+| Rule-change audit forwarding | Pass/Fail/Not Evaluable | <SIEM/log destination> |
+| Config backups and rollback | Pass/Fail/Not Evaluable | <backup/restore evidence> |
+
 ### Prioritized Remediation Plan
 1. **[Critical]** <action item with control reference>
 2. **[High]** <action item with control reference>
@@ -360,6 +408,8 @@ Produce the final report using the following structure.
 4. **Assuming hit count of zero means the rule is unused.** Hit counters reset on firewall reload or failover. Verify the counter baseline timestamp before recommending rule removal. Cross-reference with SIEM/flow data where available.
 
 5. **Conflating network ACLs with security groups in cloud environments.** In AWS, NACLs are stateless and operate at the subnet level; security groups are stateful and operate at the instance level. Both must be audited. A permissive NACL can undermine restrictive security group rules for responses.
+
+6. **Treating management-plane permits as ordinary application traffic.** A restricted permit from a dedicated administration subnet to a management interface can be valid; the right question is whether the management service is isolated, strongly authenticated, logged, and attributable. Conversely, clean application rules do not compensate for an exposed firewall console or API.
 
 ---
 
