@@ -177,12 +177,15 @@ Remediation: Use the framework's built-in session management (e.g., `HttpSession
 
 JWTs are often used as authentication, authorization, session, API, and service-to-service tokens. Treat a JWT library call as a security boundary only after verifying both the cryptographic validation and the claim-validation rules used by the application.
 
+**ASVS Reference:** V2 -- Authentication, V3 -- Session Management, V4 -- Access Control, V13 -- API and Web Service
+**CWE Coverage:** CWE-287 (Improper Authentication), CWE-345 (Insufficient Verification of Data Authenticity), CWE-347 (Improper Verification of Cryptographic Signature), CWE-639 (Authorization Bypass Through User-Controlled Key)
+
 **Controls to verify:**
 
 - Signature verification happens before any JWT claim is trusted for authentication, authorization, tenant selection, account lookup, or role assignment.
 - Accepted algorithms are explicitly pinned per issuer and key. Reject `none`, and do not mix symmetric (`HS*`) and asymmetric (`RS*`, `ES*`, `EdDSA`) algorithms for the same verifier/key selection path.
 - Claims are validated for the token type and trust context: `iss`, `aud`, `exp`, `nbf`, and `iat`. For OpenID Connect ID tokens, validate `nonce` when it was sent in the authentication request.
-- The key source is trusted. Do not fetch `jku` or `x5u` from arbitrary token headers; use configured or allowlisted JWKS endpoints for trusted issuers.
+- The key source is trusted. Do not fetch `jku` or `x5u` from arbitrary token headers, and do not trust embedded `jwk` values from attacker-controlled tokens; use configured or allowlisted JWKS endpoints for trusted issuers.
 - `kid` is validated or sanitized before database, filesystem, cache, or LDAP lookup. Do not concatenate raw `kid` values into paths or queries.
 - ID tokens, access tokens, refresh tokens, session JWTs, and service tokens have mutually exclusive validation rules so one token type cannot be replayed in another context.
 
@@ -237,6 +240,16 @@ Remediation: Decode with a trusted key and explicit options such as expected iss
 - [ ] OIDC ID token validation includes nonce validation where applicable.
 - [ ] `jku`, `x5u`, `jwk`, `kid`, and similar JOSE header values cannot redirect key lookup to attacker-controlled network or filesystem locations.
 - [ ] Multi-issuer or multi-tenant token validation uses issuer-specific JWKS, audiences, algorithms, and token-type rules.
+
+**Finding classification:**
+
+| Finding | Severity | Rationale |
+|---|---|---|
+| JWT claims are trusted after unverified parsing (`decode`, disabled signature verification, or `none` algorithm accepted) | **Critical** | Enables authentication or authorization bypass if claims drive identity, tenant, roles, or account lookup |
+| Verifier allows algorithm confusion or mixes HMAC and asymmetric algorithms on the same key-selection path | **High** | Can allow signature bypass when key material or verifier assumptions are misused |
+| Token header controls remote JWKS, embedded JWK, filesystem, SQL, cache, or LDAP key lookup without an allowlist | **High** | Enables attacker-controlled key selection, SSRF, path traversal, or lookup injection |
+| Issuer, audience, token type, nonce, or expiry rules are missing or shared across contexts | **High** | Enables token substitution across tenants, APIs, clients, or OIDC sessions |
+| Clock skew, `iat`, `nbf`, or key rotation behavior is undocumented but signature and issuer/audience checks exist | **Medium** | Weakens resilience and incident response without immediate standalone bypass |
 
 ---
 
