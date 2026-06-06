@@ -100,6 +100,44 @@ For each external content source identified in Step 1, determine whether an adve
 
 ---
 
+## Step 3.5: Verify Hidden Content Extraction and Sanitization
+
+For each external-content pipeline from Step 3, prove which fields are extracted, how they are labeled, and which hidden or non-visible fields are removed, retained, or downgraded before they reach the LLM context. A delimiter such as `<retrieved_content>` is not sufficient evidence if the loader still imports hidden instructions as ordinary body text.
+
+**Review checklist:**
+
+```
+PI-HIDDEN-01: HTML comments, CSS-hidden text, zero-size text, or offscreen text are extracted without provenance
+PI-HIDDEN-02: Image alt text, ARIA labels, captions, or title attributes are treated as instruction-equivalent content
+PI-HIDDEN-03: Markdown image URLs, link targets, reference definitions, or frontmatter carry hidden instructions or exfiltration endpoints
+PI-HIDDEN-04: PDF annotations, embedded files, OCR layers, form fields, or document metadata are inserted as visible body text
+PI-HIDDEN-05: Email headers, quoted replies, signatures, attachment metadata, or forwarded content are not separated from the active message
+PI-HIDDEN-06: Tool/API response fields such as debug messages, descriptions, labels, or error strings are passed through as trusted instructions
+PI-HIDDEN-07: Sanitization relies only on a prompt instruction telling the model to ignore hidden text
+PI-HIDDEN-08: Loader output has no field-level provenance, visibility class, source URL/file, extraction method, or sanitization decision
+PI-HIDDEN-09: Review marks hidden-content handling as safe without deterministic extraction tests or representative fixtures
+```
+
+**Evidence matrix:**
+
+| Source Type | Hidden / Metadata Fields to Verify | Required Evidence |
+|---|---|---|
+| HTML / web pages | Comments, hidden CSS, offscreen text, script/template content, alt/title/ARIA attributes, metadata | Sanitizer configuration, parser output sample, field labels, removed/retained field list |
+| Markdown | Image/link targets, reference definitions, frontmatter, fenced code examples, embedded HTML | Rendered-vs-raw comparison, URL handling policy, code-block preservation as quoted data |
+| PDF / office documents | Annotations, OCR text, form fields, hidden layers, embedded files, document properties | Loader extraction trace, metadata policy, annotation handling, visible-text baseline |
+| Email / messaging | Headers, quoted replies, signatures, forwarded messages, attachments, display names | Parsed message tree, active-message boundary, attachment metadata handling |
+| Tool / API responses | Error messages, descriptions, labels, comments, debug fields, nested metadata | Response schema allowlist, untrusted-field labeling, dropped-field evidence |
+
+**Decision rules:**
+
+- Mark hidden-content handling **Not Evaluable** when the review cannot inspect loader output, parser configuration, or representative extraction fixtures.
+- Treat hidden instructions that reach the LLM as visible body text as **High** when the application has tool access, sensitive data access, or autonomous actions.
+- Treat markdown image/link target passthrough as **High** when rendered output can create external requests or user-click exfiltration paths.
+- Treat preserved accessibility content such as alt text as acceptable only when it is labeled as metadata, bounded in length, and never promoted above the user's or system's instruction hierarchy.
+- Treat prompt-only mitigations as insufficient. The evidence must come from deterministic parsing, sanitization, labeling, or downstream policy enforcement.
+
+---
+
 ## Step 4: Test Categories
 
 Assess the application against the following documented vulnerability categories. For each category, determine whether the application's architecture makes it susceptible and whether existing defenses mitigate the risk.
@@ -234,6 +272,11 @@ Each finding should be assigned a severity based on potential impact:
 ### Interaction Surface Map
 [Table from Step 1]
 
+### Hidden Content Extraction Matrix
+| Source | Loader / Parser | Extracted Fields | Hidden / Metadata Handling | Sanitization Evidence | Residual Risk |
+|--------|-----------------|------------------|----------------------------|-----------------------|---------------|
+| [URL/file/API/email] | [component] | [visible body, links, alt text, comments, metadata, OCR, etc.] | [removed / retained as metadata / quoted data / Not Evaluable] | [fixture, parser trace, config, test output] | [Critical / High / Medium / Low] |
+
 ### Findings
 
 #### Finding [N]: [Title]
@@ -275,7 +318,14 @@ Each finding should be assigned a severity based on potential impact:
 
 5. **Failing to treat retrieved content as untrusted.** RAG pipelines often insert retrieved document chunks directly into the prompt with no distinction from system instructions. The LLM cannot inherently distinguish "this is data to reason about" from "this is an instruction to follow." Retrieved content should be explicitly demarcated and, where possible, processed through a model or layer that enforces instruction hierarchy.
 
+6. **Assuming visible-page review equals loader review.** Web pages, documents, emails, markdown, and tool responses often contain hidden or metadata fields that a human reviewer will not see but a loader may still extract. Review the actual parser output, not only the rendered page or document.
+
 ---
+
+## Hidden Content Reference URLs
+
+- OWASP LLM01:2025 Prompt Injection - https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+- Indirect prompt injection paper - https://arxiv.org/abs/2302.12173
 
 ## References
 
